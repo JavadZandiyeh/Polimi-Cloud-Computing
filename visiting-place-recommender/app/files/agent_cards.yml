@@ -3,12 +3,17 @@ place_recommender:
   version: "1.0.0"
   url: "http://localhost:8000"
   description: >-
-    Recommends visiting places (attractions, cultural sites, restaurants,
-    nightlife, and other experiences) in a user's destination city for trip
-    planning. Selects and ranks places based on the user's preferences,
-    budget, and constraints, and validates each candidate against Google Maps.
-    Designed to be called by a trip-planning orchestrator and may be invoked
-    multiple times during a single planning session.
+    Recommends places to visit in a clearly stated destination city for trip
+    planning — attractions, restaurants, nightlife, cultural sites, and other
+    experiences. Ranks up to n specific places using Google Maps search
+    results and the user's preferences, budget, and constraints. Requires an
+    identifiable destination city before searching; experience type is required
+    unless the user asked for general recommendations. Returns structured JSON
+    with an overall summary and a ranked list of places (each with name, Google
+    Maps links, coordinates, and a short rationale). Returns an empty list when
+    required information is missing or no suitable matches are found, with an
+    explanation in the summary field. Designed for a trip-planning orchestrator
+    and may be called multiple times in one session.
   provider:
     organization: MSc Cloud Computing Project
     url: https://github.com/javad
@@ -16,13 +21,23 @@ place_recommender:
     - id: recommend_visiting_places
       name: Recommend Visiting Places
       description: >-
-        Given a destination city and the user's preferences, interests,
-        budget, group type, and any constraints, return a ranked list of
-        places to visit. Each recommendation includes the place name,
-        coordinates, Google Maps links, and a short rationale tying it back
-        to the user's request. When required inputs (destination city, type
-        of experience) are missing, returns an empty list and explains what
-        is needed in the description field.
+        Given an identifiable destination city and, when required, the type of
+        experience sought, return a ranked list of up to eight places to visit.
+        Each place includes its display name, Google Maps links (listing,
+        photos, reviews), WGS84 coordinates, a per-place rationale, and a
+        zero-based rank with no gaps. The response also includes an overall
+        summary of the outcome.
+
+        Call only when the destination city is known. Do not guess the city from
+        vague hints. If the city or required experience type is missing, return
+        an empty `places` list and explain what is needed in `description`.
+        Optional context — accommodation area, budget, dates, transport,
+        interests, travel style, group type, dietary or accessibility needs,
+        pace, vibe, things to avoid — improves results when provided.
+
+        Factual place data comes from Google Maps search only; places, links,
+        and coordinates are never invented. If search yields no usable matches,
+        return an empty list and explain why in `description`.
       tags:
         - recommendations
         - trip-planning
