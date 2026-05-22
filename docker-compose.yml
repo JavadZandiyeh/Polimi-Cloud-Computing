@@ -10,6 +10,14 @@ services:
     volumes:
       - ./orchestrator/app:/orchestrator/app
     working_dir: /orchestrator/app
+    command:
+      - uvicorn
+      - main:app
+      - --host
+      - 0.0.0.0
+      - --port
+      - "8000"
+      - --reload
     ports:
       - 8000:8000
     networks:
@@ -26,6 +34,14 @@ services:
     volumes:
       - ./visiting-place-recommender/app:/visiting-place-recommender/app
     working_dir: /visiting-place-recommender/app
+    command:
+      - uvicorn
+      - main:app
+      - --host
+      - 0.0.0.0
+      - --port
+      - "8000"
+      - --reload
     ports:
       - 8001:8000
     networks:
@@ -44,6 +60,14 @@ services:
     volumes:
       - ./visiting-place-clusterer/app:/visiting-place-clusterer/app
     working_dir: /visiting-place-clusterer/app
+    command:
+      - uvicorn
+      - main:app
+      - --host
+      - 0.0.0.0
+      - --port
+      - "8000"
+      - --reload
     ports:
       - 8002:8000
     networks:
@@ -62,6 +86,14 @@ services:
     volumes:
       - ./single-day-plan-scheduler/app:/single-day-plan-scheduler/app
     working_dir: /single-day-plan-scheduler/app
+    command:
+      - uvicorn
+      - main:app
+      - --host
+      - 0.0.0.0
+      - --port
+      - "8000"
+      - --reload
     ports:
       - 8003:8000
     networks:
@@ -80,6 +112,14 @@ services:
     volumes:
       - ./food-place-recommender/app:/food-place-recommender/app
     working_dir: /food-place-recommender/app
+    command:
+      - uvicorn
+      - main:app
+      - --host
+      - 0.0.0.0
+      - --port
+      - "8000"
+      - --reload
     ports:
       - 8004:8000
     networks:
