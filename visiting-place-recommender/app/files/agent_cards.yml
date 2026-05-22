@@ -46,9 +46,10 @@ place_recommender:
       examples:
         - "Recommend historical sites to visit in Rome for a 3-day trip on a moderate budget."
         - "Suggest family-friendly attractions in Milan, ideally near Navigli."
-        - "I'm a solo traveler in Berlin who likes nightlife - where should I go?"
+        - "I'm a solo traveler in Berlin who likes nightlife — where should I go?"
         - "Pick top cultural places in Kyoto for someone interested in temples and traditional gardens."
         - "Recommend vegetarian-friendly restaurants in Barcelona, mid-range budget."
+        - "Find great coffee shops."
       input_modes:
         - text/plain
       output_modes:
