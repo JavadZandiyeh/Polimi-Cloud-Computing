@@ -1,78 +1,8 @@
 from __future__ import annotations
 
-from enum import Enum
-from functools import lru_cache
-from pathlib import Path
-from typing import Any
-
-import yaml
 from pydantic import BaseModel, Field
-from pydantic_settings import BaseSettings, SettingsConfigDict
 
 
-_FILES_DIR = Path(__file__).parent / "files"
-
-
-class AppModeEnum(str, Enum):
-    A2A = "a2a"
-    WEB = "web"
-
-
-class Settings(BaseSettings):
-    model_config = SettingsConfigDict(extra="ignore")
-
-    openai_api_key: str = ""
-    cerebras_api_key: str = ""
-    openrouter_api_key: str = ""
-    google_maps_api_key: str = ""
-    logfire_token: str = ""
-    public_url: str = "http://localhost:8000"
-    app_mode: AppModeEnum = AppModeEnum.A2A
-
-
-settings = Settings()
-
-
-class AgentEnum(str, Enum):
-    PLACE_RECOMMENDER = "place_recommender"
-
-
-class ProviderEnum(str, Enum):
-    OPENAI = "openai"
-    OPENROUTER = "openrouter"
-    CEREBRAS = "cerebras"
-
-
-class ModelEnum(str, Enum):
-    # Openai models
-    GPT_5_4_MINI = "gpt-5.4-mini"
-
-    # Openrouter models
-    OPENAI_GPT_OSS_120B_FREE = "openai/gpt-oss-120b:free"
-
-    # Cerebras models
-    QWEN_3_235B_A22B_INSTRUCT_2507 = "qwen-3-235b-a22b-instruct-2507"
-
-
-@lru_cache(maxsize=None)
-def _load_yaml(path: Path) -> Any:
-    with path.open(encoding="utf-8") as f:
-        return yaml.safe_load(f)
-
-
-def get_system_prompt(agent: AgentEnum) -> str:
-    data = _load_yaml(_FILES_DIR / "system_prompts.yml")
-    return data[agent.value]
-
-
-def get_agent_card(agent: AgentEnum) -> dict:
-    data = _load_yaml(_FILES_DIR / "agent_cards.yml")
-    card = dict(data[agent.value])
-    card["url"] = settings.public_url
-    return card
-
-
-# Agent output types
 class Place(BaseModel):
     name: str = Field(description="The name of the place as it appears on Google Maps.")
     place_url: str = Field(
@@ -84,7 +14,7 @@ class Place(BaseModel):
         description="The latitude in degrees, in the range [-90.0, +90.0]."
     )
     lng: float = Field(
-        description="The longitude in degrees, in the range [-180.0, +180.0]."
+        description="The longitude in degrees, in the range [-180.0, +90.0]."
     )
     description: str = Field(
         description=(
@@ -123,11 +53,3 @@ class PlaceRecommenderOutput(BaseModel):
             "matches were found."
         ),
     )
-
-
-def get_output_type(agent: AgentEnum) -> type[BaseModel]:
-    match agent:
-        case AgentEnum.PLACE_RECOMMENDER:
-            return PlaceRecommenderOutput
-        case _:
-            raise ValueError(f"Invalid agent: {agent.value}")
