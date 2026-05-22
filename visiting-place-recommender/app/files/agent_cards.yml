@@ -1,0 +1,40 @@
+place_recommender:
+  name: Visiting Place Recommender
+  version: "1.0.0"
+  url: "http://localhost:8000"
+  description: >-
+    Recommends visiting places (attractions, cultural sites, restaurants,
+    nightlife, and other experiences) in a user's destination city for trip
+    planning. Selects and ranks places based on the user's preferences,
+    budget, and constraints, and validates each candidate against Google Maps.
+    Designed to be called by a trip-planning orchestrator and may be invoked
+    multiple times during a single planning session.
+  provider:
+    organization: MSc Cloud Computing Project
+    url: https://github.com/javad
+  skills:
+    - id: recommend_visiting_places
+      name: Recommend Visiting Places
+      description: >-
+        Given a destination city and the user's preferences, interests,
+        budget, group type, and any constraints, return a ranked list of
+        places to visit. Each recommendation includes the place name,
+        coordinates, Google Maps links, and a short rationale tying it back
+        to the user's request. When required inputs (destination city, type
+        of experience) are missing, returns an empty list and explains what
+        is needed in the description field.
+      tags:
+        - recommendations
+        - trip-planning
+        - visiting-places
+        - google-maps
+      examples:
+        - "Recommend historical sites to visit in Rome for a 3-day trip on a moderate budget."
+        - "Suggest family-friendly attractions in Milan, ideally near Navigli."
+        - "I'm a solo traveler in Berlin who likes nightlife - where should I go?"
+        - "Pick top cultural places in Kyoto for someone interested in temples and traditional gardens."
+        - "Recommend vegetarian-friendly restaurants in Barcelona, mid-range budget."
+      input_modes:
+        - text/plain
+      output_modes:
+        - application/json
