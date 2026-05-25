@@ -11,4 +11,3 @@ restartPolicyMaxRetries = 10
 
 # Environment variables to set in Railway's dashboard:
 #   PUBLIC_URL = https://${{RAILWAY_PUBLIC_DOMAIN}}  (A2A agent card base URL)
-#   APP_MODE   = "a2a" (default) or "web"
