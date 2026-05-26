@@ -47,10 +47,11 @@ class RestaurantCandidate(BaseModel):
         description="A short editorial summary of the restaurant, if available.",
     )
     description: str = Field(
+        default="",
         description=(
             "A short rationale explaining why this restaurant was selected and ranked here, "
             "grounded in the meal slot, budget, cuisines, rating, and any stated preferences."
-        )
+        ),
     )
 
 
