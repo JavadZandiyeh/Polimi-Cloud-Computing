@@ -33,13 +33,16 @@ food_recommender: |
      - preferences from `preferences` (omit if absent)
   2. Sort the returned candidates: highest rating first; on equal rating, lower price_level wins.
      Candidates without a rating go last.
-  3. Populate `restaurantcandidates` with the sorted list.
-  4. Write a brief `description` confirming the search (meal slot, area, number of results found).
-  5. If the tool returns an empty list, return empty `restaurantcandidates` and state in
+  3. For each candidate, write a concise `description` (1–2 sentences) explaining why it was
+     selected and ranked at this position. Ground it in the meal slot, the candidate's rating,
+     price level, cuisines, and any preferences or budget provided. Keep each description
+     distinct from the overall `description` field on the output.
+  4. Populate `restaurantcandidates` with the sorted, annotated list.
+  5. Write a brief top-level `description` confirming the search (meal slot, area, result count).
+  6. If the tool returns an empty list, return empty `restaurantcandidates` and state in
      `description` that no restaurants were found for the given parameters.
 
   Strict rules:
   - Never call `search_restaurants_tool` more than once per request.
-  - Never add, remove, or modify any field returned by the tool.
-  - Never fabricate restaurant data.
+  - Never fabricate restaurant names, ratings, coordinates, or IDs — only `description` is yours to write.
   - Do not ask for optional fields (budget, preferences) — work with what is provided.
