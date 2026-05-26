@@ -58,6 +58,7 @@ class ProviderEnum(str, Enum):
     OPENAI = "openai"
     OPENROUTER = "openrouter"
     CEREBRAS = "cerebras"
+    AZURE = "azure"
 
 
 class ModelEnum(str, Enum):
@@ -90,6 +91,13 @@ class LlmSettings(BaseSettings):
     openai_api_key: str = ""
     openrouter_api_key: str = ""
     cerebras_api_key: str = ""
+
+    # Azure AI Foundry (Azure OpenAI). When provider is "azure", the model is the
+    # deployment name created in the Foundry project, not a ModelEnum value.
+    azure_openai_endpoint: str = ""
+    azure_openai_deployment: str = ""
+    azure_openai_api_version: str = "2024-12-01-preview"
+    azure_openai_api_key: str = ""
 
 
 class ObservabilitySettings(BaseSettings):
@@ -185,6 +193,26 @@ class EnvironmentService(metaclass=SingletonMeta):
     def cerebras_api_key(self) -> str:
         """Return the Cerebras API key."""
         return self._env.llm.cerebras_api_key
+
+    @property
+    def azure_openai_endpoint(self) -> str:
+        """Return the Azure OpenAI resource endpoint (e.g. https://NAME.openai.azure.com)."""
+        return self._env.llm.azure_openai_endpoint
+
+    @property
+    def azure_openai_deployment(self) -> str:
+        """Return the Azure OpenAI model deployment name used as the model id."""
+        return self._env.llm.azure_openai_deployment
+
+    @property
+    def azure_openai_api_version(self) -> str:
+        """Return the Azure OpenAI API version."""
+        return self._env.llm.azure_openai_api_version
+
+    @property
+    def azure_openai_api_key(self) -> str:
+        """Return the Azure OpenAI API key."""
+        return self._env.llm.azure_openai_api_key
 
     # --- Observability ---
 
