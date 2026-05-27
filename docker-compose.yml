@@ -19,6 +19,7 @@ services:
       - visiting-place-recommender
       - visiting-place-clusterer
       - single-day-plan-scheduler
+      - single-day-plan-scheduler-mcp
       - food-place-recommender
 
   visiting-place-recommender:
