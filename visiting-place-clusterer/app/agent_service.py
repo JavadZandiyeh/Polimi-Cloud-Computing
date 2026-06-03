@@ -1,5 +1,7 @@
 from __future__ import annotations
 
+import contextvars
+from collections.abc import Callable
 from enum import Enum
 from pathlib import Path
 
@@ -11,7 +13,7 @@ from starlette.applications import Starlette
 
 from clustering_service import ClusteringService
 from environment_service import env
-from schemas import Place, PlaceClustererOutput
+from schemas import Place, PlaceCluster, PlaceClustererOutput
 from utils import FileStore
 
 
@@ -19,19 +21,52 @@ class AgentEnum(str, Enum):
     PLACE_CLUSTERER = "place_clusterer"
 
 
+# Holds the day-clusters produced by the most recent `cluster_places` call so the
+# final output can be rebuilt server-side from the exact place objects the tool
+# grouped. The model therefore never re-serialises places into the output (which
+# previously dropped fields such as `description` and failed output validation).
+# Safe because the A2A worker processes tasks sequentially within a single task, and
+# `build_clusterer_output` clears the value at the end of every run.
+_clusters_var: contextvars.ContextVar[list[list[Place]] | None] = (
+    contextvars.ContextVar("vpc_clusters", default=None)
+)
+
+
 def cluster_places(places: list[Place], num_days: int) -> dict[str, list[str]]:
     """Group places into geographically coherent day-clusters using K-means.
 
-    Pass the full list of places to visit and the number of trip days.
-    Returns a compact `day -> place titles` map. Use this map to fill in the
-    `clusters` field of the final output — each day's list of titles goes directly
-    into the corresponding cluster. Do not invent or drop any place titles.
+    Pass the full list of places to visit and the number of trip days. The grouping
+    is stored and attached to the final result automatically — every place is kept
+    exactly as given and assigned to exactly one day, with none added, dropped, or
+    modified. You receive a compact `day -> place names` map so you can describe how
+    the trip was split across days; you do not need to repeat the places yourself.
     """
     clusters = ClusteringService.cluster(places, num_days)
+    _clusters_var.set(clusters)
     return {
-        f"day_{day}": [place.title for place in group]
+        f"day_{day}": [place.name for place in group]
         for day, group in enumerate(clusters, start=1)
     }
+
+
+def build_clusterer_output(description: str) -> PlaceClustererOutput:
+    """Assemble and return the final clusterer result.
+
+    Provide only the natural-language `description`. The day-clusters from the most
+    recent `cluster_places` call are attached automatically with every place
+    preserved exactly. If `cluster_places` was not called (required information was
+    missing), the result has empty `clusters`, so the `description` must explain what
+    is still needed.
+    """
+    clusters = _clusters_var.get()
+    _clusters_var.set(None)  # reset so a later task cannot inherit this grouping
+    return PlaceClustererOutput(
+        description=description,
+        clusters=[
+            PlaceCluster(day=day, places=group)
+            for day, group in enumerate(clusters or [], start=1)
+        ],
+    )
 
 
 class AgentHandle:
@@ -76,6 +111,20 @@ class AgentService:
         return card
 
     @staticmethod
+    def get_output_type(agent: AgentEnum) -> Callable[..., PlaceClustererOutput]:
+        """Return the output function the agent calls to produce its result.
+
+        Using a function (rather than a bare schema) lets the result be assembled
+        server-side from the grouping computed by the tool, so the model only
+        supplies the summary `description` and never re-serialises the places.
+        """
+        match agent:
+            case AgentEnum.PLACE_CLUSTERER:
+                return build_clusterer_output
+            case _:
+                raise ValueError(f"Invalid agent: {agent.value}")
+
+    @staticmethod
     def get_tools(agent: AgentEnum) -> list:
         """Return the function tools registered for the given agent."""
         match agent:
@@ -94,6 +143,6 @@ class AgentService:
             model=model,
             system_prompt=AgentService.get_system_prompt(agent_enum),
             tools=AgentService.get_tools(agent_enum),
-            output_type=PlaceClustererOutput,
+            output_type=AgentService.get_output_type(agent_enum),
         )
         return AgentHandle(agent_enum=agent_enum, agent=agent)
