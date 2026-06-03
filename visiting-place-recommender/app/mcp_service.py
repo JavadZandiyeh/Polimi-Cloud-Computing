@@ -120,13 +120,18 @@ def search_places(
     reviews, phone, website, hours, GPS coordinates, and more.
     On failure returns {"error": "search_unavailable", "local_results": []}.
     """
-    # Build ll from lat/lon/z when coordinates are provided; drop location to avoid conflicts.
+    # SerpApi's google_maps engine needs a zoom level: baked into `ll` for the
+    # coordinate path, sent as the standalone `z` param for the location-name path
+    # (it returns "Missing `z` or `m` parameter" when `location` is used without it).
+    zoom = z if z is not None else 14
     ll: str | None = None
     resolved_location: str | None = location
+    z_param: int | None = None
     if lat is not None and lon is not None:
-        zoom = z if z is not None else 14
         ll = f"@{lat},{lon},{zoom}z"
         resolved_location = None
+    elif resolved_location is not None:
+        z_param = zoom
 
     return _request_safe(
         dict(
@@ -134,6 +139,7 @@ def search_places(
             q=q,
             ll=ll,
             location=resolved_location,
+            z=z_param,
             nearby=nearby if nearby else None,
             hl=hl,
             gl=gl,
