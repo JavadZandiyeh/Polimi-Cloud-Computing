@@ -116,6 +116,10 @@ class FoodRecommenderClient:
                 data = part.get("data")
                 if not isinstance(data, dict):
                     continue
+                # pydantic-ai's A2A integration nests the structured output under a
+                # single "result" key; unwrap it before reading the fields.
+                if isinstance(data.get("result"), dict):
+                    data = data["result"]
                 restaurants = data.get("restaurantcandidates")
                 if not isinstance(restaurants, list):
                     restaurants = data.get("restaurants")
