@@ -32,14 +32,15 @@ place_recommender:
         unless general recommendations were requested. When information is missing,
         returns an empty list and explains what is still needed.
 
-        Considers budget, distance from residence or accommodation when provided,
-        popularity and relevance from search results, and fit with stated
-        preferences and constraints. Factual place data comes from Google Maps
-        search only.
+        Places are ranked by: (1) city membership, (2) preference and category
+        fit, (3) budget fit, (4) rating and review quality, (5) proximity to
+        the user's residence or accommodation as a tiebreaker. Factual place
+        data comes from Google Maps search only.
 
-        Returns a ranked list of places in the destination city, each with display
-        name, Google Maps links, coordinates, and a per-place rationale, plus an
-        overall summary. Recommendations are strong candidates for a trip schedule.
+        Returns a ranked list of places, each with title, address, GPS
+        coordinates, phone, rating, reviews, price level, opening hours,
+        category, thumbnail, and relevant links. Includes an overall summary.
+        Recommendations are strong candidates for a trip schedule.
       tags:
         - recommendations
         - trip-planning

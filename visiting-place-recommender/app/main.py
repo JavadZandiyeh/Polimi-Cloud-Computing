@@ -16,7 +16,7 @@ class Application:
         agent = AgentService.create(
             agent_enum=AgentEnum.PLACE_RECOMMENDER,
             model=LlmModelService.create(env.llm_provider, env.llm_model),
-            toolsets=[McpService.google_maps()],
+            toolsets=[McpService.google_maps_serpapi()],
         )
         base_app: ASGIApp = agent.a2a if env.app_mode == AppModeEnum.A2A else agent.web
         return Application._add_health_route(base_app)
