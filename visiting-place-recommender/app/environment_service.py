@@ -97,8 +97,8 @@ class McpSettings(BaseSettings):
 
     model_config = SettingsConfigDict(frozen=True, extra="ignore")
 
-    google_maps_mcp_url: str = "https://mapstools.googleapis.com/mcp"
     google_maps_api_key: str = ""
+    serpapi_api_key: str = ""
 
 
 class ObservabilitySettings(BaseSettings):
@@ -200,14 +200,14 @@ class EnvironmentService(metaclass=SingletonMeta):
     # --- MCP ---
 
     @property
-    def google_maps_mcp_url(self) -> str:
-        """Return the Google Maps MCP server URL."""
-        return self._env.mcp.google_maps_mcp_url
-
-    @property
     def google_maps_api_key(self) -> str:
         """Return the Google Maps API key."""
         return self._env.mcp.google_maps_api_key
+
+    @property
+    def serpapi_api_key(self) -> str:
+        """Return the SerpApi API key."""
+        return self._env.mcp.serpapi_api_key
 
     # --- Observability ---
 
