@@ -19,6 +19,7 @@ services:
       - visiting-place-recommender
       - visiting-place-clusterer
       - single-day-plan-scheduler
+      - single-day-plan-scheduler-mcp
       - food-place-recommender
 
   visiting-place-recommender:
@@ -69,6 +70,26 @@ services:
     working_dir: /single-day-plan-scheduler/app
     ports:
       - 8003:8000
+    networks:
+      - travel-scheduler-network
+    depends_on:
+      - single-day-plan-scheduler-mcp
+      - food-place-recommender
+
+  single-day-plan-scheduler-mcp:
+    build:
+      context: single-day-plan-scheduler-mcp
+      dockerfile: Dockerfile
+    image: single-day-plan-scheduler-mcp:v1.0.0
+    container_name: single-day-plan-scheduler-mcp
+    env_file:
+      - ./single-day-plan-scheduler-mcp/.env
+    volumes:
+      - ./single-day-plan-scheduler-mcp/app:/single-day-plan-scheduler-mcp/app
+      - ./single-day-plan-scheduler-mcp/.venv:/single-day-plan-scheduler-mcp/.venv
+    working_dir: /single-day-plan-scheduler-mcp/app
+    ports:
+      - 8005:8000
     networks:
       - travel-scheduler-network
 
