@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+from openai import AsyncAzureOpenAI, AsyncOpenAI
 from pydantic_ai.models import Model, ModelProfile
 from pydantic_ai.models.cerebras import CerebrasModel
 from pydantic_ai.models.openai import OpenAIChatModel, OpenAIResponsesModel
@@ -11,6 +12,8 @@ from pydantic_ai.providers.openai import OpenAIProvider
 from pydantic_ai.providers.openrouter import OpenRouterProvider
 
 from environment_service import ModelEnum, ProviderEnum, env
+
+_MAX_RETRIES = 5
 
 
 class _CerebrasJsonSchemaTransformer(OpenAIJsonSchemaTransformer):
@@ -35,12 +38,23 @@ class LlmModelService:
             case ProviderEnum.OPENAI:
                 return OpenAIResponsesModel(
                     model_name=model_name,
-                    provider=OpenAIProvider(api_key=env.openai_api_key),
+                    provider=OpenAIProvider(
+                        openai_client=AsyncOpenAI(
+                            api_key=env.openai_api_key,
+                            max_retries=_MAX_RETRIES,
+                        )
+                    ),
                 )
             case ProviderEnum.OPENROUTER:
                 return OpenRouterModel(
                     model_name=model_name,
-                    provider=OpenRouterProvider(api_key=env.openrouter_api_key),
+                    provider=OpenRouterProvider(
+                        openai_client=AsyncOpenAI(
+                            base_url="https://openrouter.ai/api/v1",
+                            api_key=env.openrouter_api_key,
+                            max_retries=_MAX_RETRIES,
+                        )
+                    ),
                 )
             case ProviderEnum.CEREBRAS:
                 return CerebrasModel(
@@ -51,14 +65,15 @@ class LlmModelService:
                     ),
                 )
             case ProviderEnum.AZURE:
-                # On Azure the model id is the deployment name created in the
-                # Foundry project, so it is read from settings rather than ModelEnum.
                 return OpenAIChatModel(
                     model_name=env.azure_openai_deployment,
                     provider=AzureProvider(
-                        azure_endpoint=env.azure_openai_endpoint,
-                        api_version=env.azure_openai_api_version,
-                        api_key=env.azure_openai_api_key,
+                        openai_client=AsyncAzureOpenAI(
+                            azure_endpoint=env.azure_openai_endpoint,
+                            api_version=env.azure_openai_api_version,
+                            api_key=env.azure_openai_api_key,
+                            max_retries=_MAX_RETRIES,
+                        )
                     ),
                 )
             case _:
