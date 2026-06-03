@@ -1,0 +1,40 @@
+orchestrator:
+  name: Travel Plan Orchestrator (Agent 0)
+  version: "1.0.0"
+  url: "http://localhost:8000"
+  description: >-
+    Top-level orchestrator for the multi-agent travel planner. Chats with the user to
+    capture the destination, dates, and preferences, then coordinates three specialist
+    agents over the A2A protocol — Visiting Place Recommendation, Visiting Place
+    Clustering, and Single Day Scheduling — to produce a complete day-by-day itinerary
+    with attractions, meals, and travel. Built with the Amazon Strands Agents SDK using
+    an OpenAI model. Exposes a web chat UI for end users.
+  provider:
+    organization: MSc Cloud Computing Project
+    url: https://github.com/javad
+  skills:
+    - id: plan_trip
+      name: Plan a Trip
+      description: >-
+        Plans an end-to-end multi-day trip from a natural-language request. Gathers the
+        destination city, trip dates, and preferences (interests, budget, transport, pace),
+        then recommends places, groups them into per-day clusters, and schedules each day
+        (ordering visits, estimating travel, and inserting lunch and dinner).
+
+        Requires an identifiable destination city and trip duration; asks the user for
+        anything essential that is missing. Returns a friendly day-by-day itinerary and
+        offers to adjust it.
+      tags:
+        - orchestration
+        - trip-planning
+        - itinerary
+        - multi-agent
+        - a2a
+      examples:
+        - "Plan a 2-day trip to Milan, I like history and food, mid budget, 2026-06-10 to 2026-06-11."
+        - "I have 3 days in Rome next month and love art and good coffee — build me an itinerary."
+        - "Weekend in Barcelona, vegetarian, prefer walking and metro, relaxed pace."
+      input_modes:
+        - text/plain
+      output_modes:
+        - text/plain

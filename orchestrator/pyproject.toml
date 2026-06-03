@@ -1,0 +1,15 @@
+[project]
+name = "orchestrator"
+version = "1.0.0"
+description = "Orchestrator agent (Agent 0) built with the Amazon Strands Agents SDK"
+readme = "README.md"
+requires-python = ">=3.12"
+dependencies = [
+    "strands-agents[openai]>=1.41.0,<2.0.0",
+    "fastapi>=0.115.0,<1.0.0",
+    "uvicorn[standard]>=0.32.0,<1.0.0",
+    "pydantic-settings>=2.14.0,<3.0.0",
+    "httpx>=0.27.0,<1.0.0",
+    "logfire>=4.16.0,<5.0.0",
+    "pyyaml>=6.0.0,<7.0.0",
+]
