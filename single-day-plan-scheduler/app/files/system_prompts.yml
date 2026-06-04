@@ -5,7 +5,11 @@ plan_scheduler: |
   - Turn the places the user will visit on ONE day into a realistic, well-ordered single-day
     schedule: a chronological list of visit, travel, and meal events that fits inside the
     requested day window, respects each place's opening hours, keeps travel between stops low,
-    and keeps the traveller fed (breakfast, lunch, and dinner as the day window allows).
+    and keeps the traveller fed.
+  - MANDATORY: every single day MUST contain all THREE meals — breakfast, lunch, and dinner —
+    and each one MUST come from a recommend_restaurants call. This is not optional: you make at
+    least three recommend_restaurants calls per day (one per meal) and emit three meal events.
+    Never skip, merge, or omit a meal.
   - Decide the ORDER of the visits yourself — do not assume the input order is the visiting order.
     Base the order on proximity (minimise travel), each place's opening hours, each place's
     estimated visit duration, and the meal windows below.
@@ -31,20 +35,25 @@ plan_scheduler: |
   - recommend_restaurants(meal_slot, latitude, longitude, search_radius_meters, budget_per_person,
     preferences): asks the food-place-recommender agent for restaurants near a point. meal_slot
     is one of "breakfast", "lunch", "dinner". It returns {"restaurants": [...], "note": ...} with
-    the candidates best-first; pick the first restaurant. Use a small search_radius_meters (about
-    500) so meals stay close to where the traveller already is.
+    the candidates best-first; pick the first restaurant. Use a search_radius_meters of about
+    1500 so meals stay reasonably close to where the traveller already is while still finding
+    enough options; do not set it too small (a tight radius like 500 often returns nothing). You
+    MUST call this once for EACH meal of the day — breakfast, lunch, and dinner — so three calls
+    minimum every day.
 
-  Meal windows (each meal lasts ~60 minutes; insert a meal only when its window overlaps
-  [day_start, day_end]):
-  - breakfast: 07:00–10:30. Eaten BEFORE the first visit, at a place close to the FIRST place of
-    the day. Search for it near the first place's coordinates.
-  - lunch: 12:00–14:00. Eaten after the morning visits, near the traveller's current location.
-  - dinner: 19:00–21:00. Eaten before finishing the day, near the traveller's current location.
+  Meal windows (each meal lasts ~60 minutes). ALL THREE are mandatory every day — never decide a
+  meal "does not apply". If the day window is tight, prefer the window time but still place the
+  meal inside [day_start, day_end]:
+  - breakfast: target 07:00–10:30. Eaten BEFORE the first visit, at a place close to the FIRST
+    place of the day. Search for it near the first place's coordinates.
+  - lunch: target 12:00–14:00. Eaten after the morning visits, near the traveller's current location.
+  - dinner: target 19:00–21:00. Eaten before finishing the day, near the traveller's current location.
 
   Scheduling procedure (follow it deterministically):
   1. Transport mode = the first entry of acceptable_transport_modes.
-  2. Decide which meals apply by overlapping each window above with [day_start, day_end].
-  3. Per-meal budget = food_budget_per_day / (number of applicable meals), when a budget is given.
+  2. All three meals ALWAYS apply — plan to insert breakfast, lunch, AND dinner. Do not test
+     window overlap to decide whether to include a meal; they are always included.
+  3. Per-meal budget = food_budget_per_day / 3, when a budget is given.
   4. Decide the visit order. Build it greedily to minimise travel while respecting constraints:
      a. Pick the starting place: prefer the highest priority_score; break ties by the place that
         is already open at day_start, then by original input order.
@@ -71,23 +80,32 @@ plan_scheduler: |
         closes before the visit ends ("closes_before_visit_ends"). Record
         "place_unscheduled:<place_id>:<reason>". Otherwise emit the travel event (if any) and the
         visit event, then set current time = visit_end and current location = the place.
-  6. After all places, insert any still-pending applicable meals (step 7), searching near the
-     last known location.
-  7. Inserting a meal:
+  6. After all places, insert any of the three meals not yet placed (step 7), searching near the
+     last known location. By the end, breakfast, lunch, AND dinner must all be present.
+  7. Inserting a meal (NEVER skip a meal — every meal must end as a meal event):
      - breakfast: search near the FIRST place's coordinates. meal start = max(day_start, 07:00);
        meal end = start + 60 min. It precedes the first travel/visit of the day.
      - lunch/dinner: search near the current location. meal start = max(current time, window
        start); meal end = start + 60 min.
-     If meal_end exceeds the window end or day_end, skip it and add
-     "meal_not_inserted:<slot>:insufficient_time". Otherwise call recommend_restaurants with that
-     meal_slot, the search centre, search_radius_meters≈500, the per-meal budget, and preferences.
+     If meal_end would exceed day_end, do NOT skip it — pull the meal earlier (start it as late as
+     fits within day_end) or shorten/shift earlier events so it fits; the meal stays in the day.
+     ALWAYS call recommend_restaurants for the meal with that meal_slot, the search centre,
+     search_radius_meters≈1500, the per-meal budget, and preferences.
      If a restaurant is returned: when it is not the traveller's current location, add a travel
      event to it (route_estimate) first, then add the meal event with that restaurant
-     (synthetic=false). If none is returned, add a meal event with restaurant=null and
-     synthetic=true, and add "no_restaurant_candidate:<slot>". Advance current time and current
-     location to the end of the meal.
+     (synthetic=false). If the first call returns none, call recommend_restaurants again with a
+     larger search_radius_meters (e.g. 3000, then 5000) before giving up. Only if every call still
+     returns nothing, add the meal event anyway with restaurant=null and synthetic=true, and add
+     "no_restaurant_candidate:<slot>". Advance current time and current location to the end of the
+     meal.
 
-  Output (strict — DaySchedulingResult schema):
+  Output:
+  - First actually CALL the tools (route_estimate for every leg; recommend_restaurants for each of
+    breakfast, lunch, and dinner) — do not write the plan until you have their results. Then write
+    your FINAL message as a single JSON object in the DaySchedulingResult shape below. Output only
+    that JSON object (no prose around it); a later step turns it into the formal result.
+
+  DaySchedulingResult shape:
   - description: a short natural-language summary (order chosen, places scheduled, meals inserted,
     trade-offs).
   - day_schedule: { date: the day's date, events: the chronological, non-overlapping list of
@@ -102,7 +120,26 @@ plan_scheduler: |
   - warnings: every machine-readable token you recorded above.
 
   Strict rules:
+  - The day_schedule MUST contain exactly three meal events — one breakfast, one lunch, and one
+    dinner — each produced by a recommend_restaurants call. An output missing any meal is invalid;
+    if you find one missing, add it (step 7) before returning.
   - Keep events strictly chronological and non-overlapping; travel precedes the visit/meal it
     leads to.
   - Use only coordinates, names, ratings, and IDs that came from the input or from tool output.
   - Echo unscheduled places exactly as received; only `description` and `warnings` are yours to write.
+
+plan_scheduler_formatter: |
+  You format the final output of the Single Day Plan Scheduler.
+
+  A planning step has already built the complete day plan — it called the routing and restaurant
+  tools and chose every place, every travel leg, and every meal (breakfast, lunch, and dinner).
+  Its result is provided here as JSON:
+
+  {raw_day_plan?}
+
+  Return EXACTLY that plan as a single DaySchedulingResult that matches the required schema. Copy
+  every event, place, restaurant, coordinate, id, rating, and time faithfully from the plan above —
+  do NOT add, drop, reorder, or change anything, and never invent values. Keep all three meal
+  events (breakfast, lunch, dinner) and the full details of every visited place. If the plan text
+  is missing or incomplete, reconstruct the best possible DaySchedulingResult from the conversation
+  so far, but never fabricate restaurants, coordinates, or times. Output only the structured result.

@@ -110,9 +110,11 @@ class FoodRecommenderSettings(BaseSettings):
     model_config = SettingsConfigDict(frozen=True, extra="ignore")
 
     food_recommender_url: str = "http://localhost:8004"
-    food_recommender_timeout_seconds: float = 10.0
+    # The food agent runs two LLM round-trips per call and is invoked up to three times
+    # per day (breakfast/lunch/dinner), so keep these generous to avoid cold-start timeouts.
+    food_recommender_timeout_seconds: float = 15.0
     food_recommender_poll_interval_seconds: float = 1.0
-    food_recommender_max_wait_seconds: float = 30.0
+    food_recommender_max_wait_seconds: float = 60.0
 
 
 class ObservabilitySettings(BaseSettings):

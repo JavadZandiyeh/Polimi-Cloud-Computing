@@ -65,7 +65,9 @@ def main() -> None:
         r.raise_for_status()
         result = r.json().get("result", {})
         task_id = result.get("id")
-        print(f"submitted task: {task_id} (state={result.get('status', {}).get('state')})")
+        print(
+            f"submitted task: {task_id} (state={result.get('status', {}).get('state')})"
+        )
 
         deadline = time.monotonic() + 120
         while time.monotonic() < deadline:

@@ -4,7 +4,8 @@ from enum import Enum
 from pathlib import Path
 
 from a2a.types import AgentCapabilities, AgentCard, AgentSkill
-from google.adk.agents import LlmAgent
+from google.adk.agents import LlmAgent, SequentialAgent
+from google.adk.agents.base_agent import BaseAgent
 from google.adk.a2a.utils.agent_to_a2a import to_a2a
 from google.adk.models.lite_llm import LiteLlm
 from pydantic import BaseModel
@@ -22,7 +23,7 @@ class AgentEnum(str, Enum):
 class AgentHandle:
     """Runtime wrapper around a built Google ADK agent."""
 
-    def __init__(self, agent_enum: AgentEnum, agent: LlmAgent) -> None:
+    def __init__(self, agent_enum: AgentEnum, agent: BaseAgent) -> None:
         self.agent_enum = agent_enum
         self.agent = agent
 
@@ -49,10 +50,15 @@ class AgentService:
     _FILES_DIR = Path(__file__).parent / "files"
 
     @staticmethod
+    def _load_prompt(key: str) -> str:
+        """Return the prompt stored under `key` in system_prompts.yml."""
+        data = FileStore.load_yaml(AgentService._FILES_DIR / "system_prompts.yml")
+        return data[key]
+
+    @staticmethod
     def get_system_prompt(agent: AgentEnum) -> str:
         """Return the system prompt (instruction) for the given agent."""
-        data = FileStore.load_yaml(AgentService._FILES_DIR / "system_prompts.yml")
-        return data[agent.value]
+        return AgentService._load_prompt(agent.value)
 
     @staticmethod
     def get_agent_card(agent: AgentEnum) -> AgentCard:
@@ -67,7 +73,9 @@ class AgentService:
             url=env.public_url,
             provider=card.get("provider"),
             capabilities=AgentCapabilities(),
-            default_input_modes=card.get("input_modes", ["application/json", "text/plain"]),
+            default_input_modes=card.get(
+                "input_modes", ["application/json", "text/plain"]
+            ),
             default_output_modes=card.get("output_modes", ["application/json"]),
             skills=skills,
         )
@@ -88,14 +96,41 @@ class AgentService:
         toolsets: list | None = None,
         tools: list | None = None,
     ) -> AgentHandle:
-        """Build a Google ADK agent and return a handle to expose it."""
-        agent = LlmAgent(
+        """Build the scheduler agent and return a handle to expose it.
+
+        Google ADK cannot reliably combine `output_schema` with `tools` on the same
+        LlmAgent: when an output schema is enforced (via the model's response_format on
+        the LiteLLM/OpenAI path), the model is pushed to emit the final JSON immediately
+        and skips the tool calls — so route_estimate and recommend_restaurants never run.
+
+        To get BOTH tool use and a structured result, we use a SequentialAgent:
+          1. planner   — has the tools, NO output_schema, so it freely calls
+             route_estimate and recommend_restaurants and writes the full day plan as
+             JSON text into state["raw_day_plan"].
+          2. formatter — has the output_schema and NO tools, so it just converts the
+             planner's JSON into the strict DaySchedulingResult that is returned to A2A.
+        """
+        description = AgentService.get_agent_card(agent_enum).description
+
+        planner = LlmAgent(
             model=model,
-            name=agent_enum.value,
-            description=AgentService.get_agent_card(agent_enum).description,
+            name=f"{agent_enum.value}_planner",
+            description=description,
             instruction=AgentService.get_system_prompt(agent_enum),
             tools=[*(tools or []), *(toolsets or [])],
+            output_key="raw_day_plan",
+        )
+        formatter = LlmAgent(
+            model=model,
+            name=f"{agent_enum.value}_formatter",
+            description=description,
+            instruction=AgentService._load_prompt(f"{agent_enum.value}_formatter"),
             output_schema=AgentService.get_output_type(agent_enum),
             output_key="day_plan",
+        )
+        agent = SequentialAgent(
+            name=agent_enum.value,
+            description=description,
+            sub_agents=[planner, formatter],
         )
         return AgentHandle(agent_enum=agent_enum, agent=agent)
