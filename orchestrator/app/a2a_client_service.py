@@ -59,11 +59,15 @@ class A2AClient:
                 task_id = self._extract_task_id(response.json())
                 task = self._poll_for_completion(client, task_id)
         except httpx.HTTPError as exc:
-            raise A2AClientError(f"A2A request to {self._base_url} failed: {exc}") from exc
+            raise A2AClientError(
+                f"A2A request to {self._base_url} failed: {exc}"
+            ) from exc
 
         return self._extract_output(task)
 
-    def _poll_for_completion(self, client: httpx.Client, task_id: str) -> dict[str, Any]:
+    def _poll_for_completion(
+        self, client: httpx.Client, task_id: str
+    ) -> dict[str, Any]:
         started = time.monotonic()
         while True:
             if time.monotonic() - started > self._max_wait:
@@ -143,21 +147,27 @@ def _call_agent(base_url: str, request_text: str) -> str:
 def recommend_visiting_places(request: str) -> str:
     """Recommend places to visit in a destination city (Agent 1 — VPR).
 
-    Call this first, once the destination city is known, to obtain the main
-    attractions for the trip. The agent searches Google Maps and returns places
-    that are strong candidates for the schedule.
+    Call this first, once the destination city AND the interests/experience type are known,
+    to obtain the main attractions for the trip. The agent searches Google Maps and returns
+    places that are strong candidates for the schedule. Keep its full JSON output verbatim —
+    you will need each place's details later both to schedule days and to render the final
+    itinerary (addresses, hours, images, links).
 
     Args:
-        request: A natural-language trip-planning brief for the recommender. Include the
-            destination city (required) and any known context: interests/experience type
-            (e.g. historical, food, nightlife), budget, trip length, accommodation area,
-            travel style, and things to avoid.
+        request: A natural-language trip-planning brief for the recommender. MUST name the
+            destination city and the interests/experience type (e.g. historical, food, art,
+            nightlife) unless the user explicitly wants general recommendations. Also include
+            any known context: budget, trip length, accommodation area, travel style, and
+            things to avoid.
 
     Returns:
-        A JSON string with `description` (summary or what is still missing) and `places`:
-        a ranked list where each place has `name`, `place_url`, `photos_url`, `reviews_url`,
-        `lat`, `lng`, `description`, and `rank` (0 = best). `places` is empty when required
-        information is missing. On failure, a JSON object with an `error` key.
+        A JSON string with `description` (summary, or — when `places` is empty — which
+        required information is still missing) and `places`: a ranked list (rank 0 = best,
+        no gaps, up to 10). Each place has: `title`, `address`, `gps_coordinates`
+        {latitude, longitude}, `phone`, `description`, `rating` (0–5), `reviews` (count),
+        `open_state`, `hours` {monday…sunday: free-text window or null}, `price` ("$"–"$$$$"),
+        `type` (category labels), `thumbnail` (image URL), `links` {website, photos, reviews},
+        and `rank`. On failure, a JSON object with an `error` key.
     """
     return _call_agent(env.vpr_url, request)
 
@@ -170,16 +180,19 @@ def cluster_visiting_places(request: str) -> str:
     days so each day is geographically coherent and travel within a day is minimised.
 
     Args:
-        request: A natural-language request that MUST embed both (a) the full list of
-            places from the recommender — keep each place's `name`, `lat`, `lng`, and
-            `rank` — and (b) the trip duration (start and end dates, or an explicit
-            number of days). You may paste the recommender's `places` JSON directly.
+        request: A natural-language request that MUST embed both (a) the list of places
+            from the recommender — for clustering, each place needs at least its `title`,
+            `gps_coordinates` {latitude, longitude}, and `type` — and (b) the number of
+            trip days (or the start/end dates from which the day count is derived). You may
+            paste the recommender's `places` JSON directly.
 
     Returns:
-        A JSON string with `description` and `clusters`: one entry per trip day, each with
-        a 1-based `day` index and its assigned `places` (same fields as the recommender).
-        `clusters` is empty when the places or trip duration are missing. On failure, a
-        JSON object with an `error` key.
+        A JSON string with `description` and `clusters`: one entry per trip day, each with a
+        1-based `day` index and `places` — a list of place TITLE STRINGS only (not full
+        objects). Re-join each title with the matching place object from the recommender's
+        output to recover its coordinates, address, hours, and other details before
+        scheduling that day. `clusters` is empty when the places or number of days are
+        missing. On failure, a JSON object with an `error` key.
     """
     return _call_agent(env.vpc_url, request)
 
@@ -193,18 +206,28 @@ def schedule_single_day_plan(request: str) -> str:
     (it calls the food recommender itself — you do NOT call it).
 
     Args:
-        request: A JSON object string matching the DaySchedulingRequest schema for ONE day:
+        request: A JSON object string matching the DaySchedulingRequest schema for ONE day.
+          Build each place from the matching recommender place (looked up by title from the
+          day's cluster), NOT from the cluster entry (which is just a title):
             {
               "places": [
                 {
-                  "id": "<slug-from-name>",
-                  "name": "<place name>",
-                  "location": {"latitude": <lat>, "longitude": <lng>},
-                  "estimated_visit_duration_minutes": <int, e.g. 60-120>,
+                  "id": "<slug derived from the place title>",
+                  "name": "<place title, unchanged>",
+                  "location": {"latitude": <gps_coordinates.latitude>,
+                               "longitude": <gps_coordinates.longitude>,
+                               "address": "<place address if known>"},
+                  "estimated_visit_duration_minutes": <int; estimate from type — major
+                      museums/sites ~120, churches/landmarks ~60, parks/markets/squares ~90;
+                      never 0>,
                   "priority_score": <float; higher = visit earlier; derive from rank,
-                                     e.g. higher for rank 0>,
-                  "category": "<optional>",
-                  "summary": "<optional, the place's description>"
+                                     e.g. 1.0 for rank 0 and decreasing for higher ranks>,
+                  "category": "<optional, e.g. first label from type>",
+                  "summary": "<optional, the place's description>",
+                  "opening_hours": [
+                     {"day_of_week": "<lowercase weekday>",
+                      "open_time": "HH:MM:SS", "close_time": "HH:MM:SS"}
+                  ]
                 }
               ],
               "day_start": "YYYY-MM-DDTHH:MM:SS",
@@ -213,8 +236,10 @@ def schedule_single_day_plan(request: str) -> str:
               "preferences": ["<optional cuisine/activity strings>"],
               "acceptable_transport_modes": ["walking" | "driving" | "transit" | "bicycling"]
             }
-          Map each clustered place's `lat`/`lng` into `location.latitude`/`location.longitude`
-          and derive `id` from the name. `places` must contain at least one place.
+          `opening_hours` is OPTIONAL: include an entry only for weekdays whose recommender
+          `hours` clearly state a single open–close window, converted to 24h "HH:MM:SS";
+          omit closed or ambiguous days (the scheduler then treats the place as always open).
+          `places` must contain at least one place.
 
     Returns:
         A JSON string with `description`, `day_schedule` (`date` plus ordered `events` of

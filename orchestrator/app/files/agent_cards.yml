@@ -16,14 +16,18 @@ orchestrator:
     - id: plan_trip
       name: Plan a Trip
       description: >-
-        Plans an end-to-end multi-day trip from a natural-language request. Gathers the
-        destination city, trip dates, and preferences (interests, budget, transport, pace),
-        then recommends places, groups them into per-day clusters, and schedules each day
-        (ordering visits, estimating travel, and inserting lunch and dinner).
+        Plans an end-to-end multi-day trip from a natural-language request. Gates on the
+        required inputs first — destination city, trip duration, and interests — asking the
+        user for anything essential that is missing before calling any agent. Then it
+        recommends places, validates and (if needed) retries that result, groups the places
+        into one cluster per trip day, re-joins each clustered title with its full place
+        details, and schedules each day separately (ordering visits, estimating travel, and
+        inserting lunch and dinner). It recovers from agent errors by retrying or asking the
+        user, and keeps the days that succeeded rather than aborting.
 
-        Requires an identifiable destination city and trip duration; asks the user for
-        anything essential that is missing. Returns a friendly day-by-day itinerary and
-        offers to adjust it.
+        Returns a polished, detail-rich day-by-day itinerary that uses each place's images,
+        address, opening hours, coordinates, rating, price, and links, with the meals and exact
+        times produced by the scheduler, and offers to adjust it.
       tags:
         - orchestration
         - trip-planning
