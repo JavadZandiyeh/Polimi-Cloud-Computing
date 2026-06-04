@@ -134,6 +134,8 @@ _INDEX_HTML = """<!DOCTYPE html>
   .status { align-self:flex-start; color:var(--muted); font-size:13px; font-style:italic; padding-left:6px; }
   .bot h2 { font-size:16px; margin:10px 0 4px; }
   .bot strong { color:#fff; }
+  .bot img { max-width:320px; width:100%; border-radius:10px; display:block; margin:8px 0; }
+  .bot a { color:#93c5fd; text-decoration:underline; }
   form { display:flex; gap:10px; padding:16px 20px; background:var(--panel); border-top:1px solid #0b1220; }
   #input { flex:1; resize:none; border:1px solid #475569; background:#0b1220; color:var(--text);
            border-radius:10px; padding:12px 14px; font-size:15px; font-family:inherit; outline:none; }
@@ -169,9 +171,13 @@ when, and what you enjoy (history, food, art, nightlife&hellip;), and I'll build
   function escapeHtml(s) {
     return s.replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;');
   }
-  // Minimal, safe formatting: escape first, then bold (**x**) and ## headings.
+  // Minimal, safe formatting: escape first, then render markdown images and links
+  // (http/https only), ## headings, and bold (**x**). Images must run before links
+  // so '![alt](url)' is not consumed by the link rule.
   function format(s) {
     let h = escapeHtml(s);
+    h = h.replace(/!\\[([^\\]]*)\\]\\((https?:\\/\\/[^\\s)]+)\\)/g, '<img src="$2" alt="$1" />');
+    h = h.replace(/\\[([^\\]]+)\\]\\((https?:\\/\\/[^\\s)]+)\\)/g, '<a href="$2" target="_blank" rel="noopener">$1</a>');
     h = h.replace(/^##\\s?(.*)$/gm, '<h2>$1</h2>');
     h = h.replace(/\\*\\*([^*]+)\\*\\*/g, '<strong>$1</strong>');
     return h;
