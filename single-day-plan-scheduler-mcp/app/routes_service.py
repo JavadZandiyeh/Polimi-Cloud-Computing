@@ -80,13 +80,17 @@ class RoutesService:
 
         routes = response.json().get("routes", [])
         if not routes:
-            raise RouteEstimationError("Google Routes response did not include any routes")
+            raise RouteEstimationError(
+                "Google Routes response did not include any routes"
+            )
         route = routes[0]
 
         return RouteEstimate(
             mode=normalized_mode,
             estimated_distance_km=round(route["distanceMeters"] / 1000, 2),
-            estimated_duration_minutes=RoutesService._duration_to_minutes(route["duration"]),
+            estimated_duration_minutes=RoutesService._duration_to_minutes(
+                route["duration"]
+            ),
             notes=[
                 "provider=google_routes",
                 f"transport_mode={normalized_mode}",
