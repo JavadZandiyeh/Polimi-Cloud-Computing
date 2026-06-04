@@ -18,8 +18,13 @@ _BUDGET_TO_PRICE_LEVEL = [
 
 # Types to exclude from cuisine display
 _SKIP_TYPES = {
-    "food", "point_of_interest", "establishment",
-    "restaurant", "store", "health", "premise",
+    "food",
+    "point_of_interest",
+    "establishment",
+    "restaurant",
+    "store",
+    "health",
+    "premise",
 }
 
 # Human-readable labels for the venue `types` the Nearby Search (Legacy) API
@@ -27,9 +32,9 @@ _SKIP_TYPES = {
 # (e.g. `italian_restaurant`); only generic venue types appear, so this map is
 # intentionally small. Anything unmapped is title-cased as a fallback.
 _CUISINE_MAP: dict[str, str] = {
-    "cafe":          "Café",
-    "bakery":        "Bakery",
-    "bar":           "Bar",
+    "cafe": "Café",
+    "bakery": "Bakery",
+    "bar": "Bar",
     "meal_takeaway": "Takeaway",
     "meal_delivery": "Delivery",
 }
@@ -83,8 +88,8 @@ class PlacesService:
         """
         slot_defaults = {
             "breakfast": "breakfast cafe",
-            "lunch":     "lunch restaurant",
-            "dinner":    "dinner restaurant",
+            "lunch": "lunch restaurant",
+            "dinner": "dinner restaurant",
         }
 
         keyword = (
@@ -95,10 +100,10 @@ class PlacesService:
 
         params: dict = {
             "location": f"{latitude},{longitude}",
-            "radius":   radius_meters,
-            "type":     "restaurant",
-            "keyword":  keyword,
-            "key":      env.google_places_api_key,
+            "radius": radius_meters,
+            "type": "restaurant",
+            "keyword": keyword,
+            "key": env.google_places_api_key,
         }
 
         if budget_per_person is not None:
@@ -115,7 +120,9 @@ class PlacesService:
             data = resp.json()
 
         status = data.get("status", "UNKNOWN")
-        print(f"[PlacesService] status={status} | results={len(data.get('results', []))}")
+        print(
+            f"[PlacesService] status={status} | results={len(data.get('results', []))}"
+        )
 
         if status not in _EMPTY_STATUSES:
             error_message = data.get("error_message", "no details provided")
