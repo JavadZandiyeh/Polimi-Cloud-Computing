@@ -22,33 +22,16 @@ _SKIP_TYPES = {
     "restaurant", "store", "health", "premise",
 }
 
-# Map Places API type strings to human-readable cuisine labels
+# Human-readable labels for the venue `types` the Nearby Search (Legacy) API
+# actually returns. It does NOT expose specific cuisine types
+# (e.g. `italian_restaurant`); only generic venue types appear, so this map is
+# intentionally small. Anything unmapped is title-cased as a fallback.
 _CUISINE_MAP: dict[str, str] = {
-    "italian_restaurant":        "Italian",
-    "pizza_restaurant":          "Pizza",
-    "cafe":                      "Café",
-    "bakery":                    "Bakery",
-    "bar":                       "Bar",
-    "fast_food_restaurant":      "Fast Food",
-    "meal_takeaway":             "Takeaway",
-    "meal_delivery":             "Delivery",
-    "japanese_restaurant":       "Japanese",
-    "chinese_restaurant":        "Chinese",
-    "american_restaurant":       "American",
-    "french_restaurant":         "French",
-    "mediterranean_restaurant":  "Mediterranean",
-    "seafood_restaurant":        "Seafood",
-    "steak_house":               "Steakhouse",
-    "vegetarian_restaurant":     "Vegetarian",
-    "vegan_restaurant":          "Vegan",
-    "sushi_restaurant":          "Sushi",
-    "indian_restaurant":         "Indian",
-    "mexican_restaurant":        "Mexican",
-    "greek_restaurant":          "Greek",
-    "middle_eastern_restaurant": "Middle Eastern",
-    "brunch_restaurant":         "Brunch",
-    "breakfast_restaurant":      "Breakfast",
-    "wine_bar":                  "Wine Bar",
+    "cafe":          "Café",
+    "bakery":        "Bakery",
+    "bar":           "Bar",
+    "meal_takeaway": "Takeaway",
+    "meal_delivery": "Delivery",
 }
 
 
@@ -161,7 +144,6 @@ class PlacesService:
                     price_level=price_level,
                     cuisines=cuisines or None,
                     rating=place.get("rating"),
-                    summary=place.get("editorial_summary", {}).get("overview"),
                 )
             )
 
