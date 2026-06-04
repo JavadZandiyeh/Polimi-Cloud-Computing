@@ -1,18 +1,26 @@
 place_clusterer:
   name: Visiting Place Clusterer (VPC)
   version: "1.0.0"
-  url: "http://localhost:8000"
+  url: "http://localhost:8002"
   description: >-
-    Groups recommended places into geographically coherent day-clusters for
-    efficient trip planning. Objectives in priority order: (1) minimise travel
-    distance within each day, (2) produce one cluster per trip day, (3) avoid
-    clusters too large for a realistic day by rebalancing based on estimated
-    visit durations. Each request provides the places (as produced by the
-    visiting place recommender) and the number of trip days, and receives structured JSON
-    with an overall summary and one cluster per trip day. Clustering uses K-means
-    on GPS coordinates followed by a duration-aware rebalancing pass. Every input
-    place is preserved exactly and assigned to exactly one day. Returns an empty
-    list when the places or trip days are missing.
+    Groups places into geographically coherent day clusters to reduce
+    unnecessary travel and improve daily feasibility. The agent prioritizes
+    geographic coherence, trip-day alignment, and realistic daily grouping. It
+    requires a non-empty list of places where every place has usable GPS
+    coordinates, including both latitude and longitude, and a clear number of
+    trip days.
+    The agent calls `cluster_places` only when all required information is
+    available. It passes the place list exactly as received and the explicit or
+    derived number of trip days. It never assigns places to clusters itself and
+    does not invent, repair, approximate, or geocode missing coordinates.
+    The requested number of clusters equals the number of trip days, capped at
+    the number of places. The output contains structured JSON with a brief
+    description and one entry per day returned by the clustering tool. Each day
+    contains a 1-based day index and the list of place titles assigned to that
+    day.
+    Returns empty `clusters` when the place list is missing or empty, one or more
+    places lack usable GPS coordinates, the number of trip days is missing,
+    invalid, or unclear, or clustering cannot be completed.
   provider:
     organization: MSc Cloud Computing Project
     url: https://github.com/javad
@@ -20,26 +28,31 @@ place_clusterer:
     - id: cluster_visiting_places
       name: Cluster Visiting Places
       description: >-
-        Groups recommended places into day-clusters so each cluster holds the
-        places intended for a single trip day, minimising travel distance within
-        a day.
-
-        Requires the list of places (each with gps_coordinates) and the number
-        of trip days in the input. The number of clusters equals the number of
-        trip days, capped at the number of places. When either is missing,
-        returns an empty list and explains what is still needed.
-
-        Clustering uses K-means++ on GPS coordinates to minimise intra-day
-        travel, followed by a duration-aware rebalancing pass that moves places
-        from overloaded clusters (those exceeding 8 hours of estimated visit
-        time) to geographically nearby ones. Visit durations are estimated from
-        place type (e.g. museum ≈ 2 h, restaurant ≈ 1 h). Places are never
-        invented, dropped, or modified — the same places that come in are
-        grouped and returned unchanged.
-
-        Returns one cluster per trip day, each holding its assigned places with
-        their original details, plus an overall summary of how the trip was
-        grouped.
+        Groups places into day clusters for trip planning. Places close to each
+        other should be grouped together, approximately one cluster should be
+        produced per trip day, and clusters should avoid becoming too large for a
+        realistic day.
+        Requires two inputs before clustering: a non-empty list of places where
+        every place has usable GPS coordinates, and the number of trip days. A
+        usable coordinate must include both latitude and longitude. The number of
+        trip days may be provided explicitly or derived from start and end dates
+        or datetimes by rounding up to whole days. A same-day trip counts as one
+        day.
+        If the place list is missing or empty, one or more places lack usable
+        latitude or longitude, or the number of trip days is missing, invalid, or
+        unclear, the skill returns empty `clusters` and uses `description` to
+        state what required information is missing.
+        When all required information is present, the skill calls
+        `cluster_places`, passing the place list exactly as received and the
+        explicit or derived number of trip days. It never assigns places to
+        clusters itself, never invents coordinates, never geocodes missing
+        coordinates, and never drops, renames, reorders, or modifies titles
+        returned by the clustering tool.
+        Returns `PlaceClustererOutput` with `clusters` and `description`.
+        `clusters` contains one entry per day returned by the tool. Each entry
+        includes a 1-based `day` index and a `places` list containing the place
+        titles for that day. The `description` briefly summarizes the grouping or
+        explains why clustering could not be completed.
       tags:
         - clustering
         - trip-planning
@@ -47,10 +60,9 @@ place_clusterer:
         - itinerary
       examples:
         - "Cluster these 8 Milan places into 2 days."
-        - "Group the recommended Rome attractions across 3 days."
+        - "Group these Rome attractions across 3 days."
         - "Split this list of places into day-groups for a 4-day visit."
       input_modes:
         - text/plain
-        - application/json
       output_modes:
         - application/json
