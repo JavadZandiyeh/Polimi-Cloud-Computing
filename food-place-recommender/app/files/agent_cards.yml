@@ -1,11 +1,11 @@
 food_recommender:
   name: Food Place Recommendation (FPR)
   version: "1.0.0"
-  url: "http://localhost:8000"
+  url: "http://localhost:8004"
   description: >-
     Finds restaurants near a given location for a specific meal slot (breakfast, lunch, or dinner).
-    Accepts a structured JSON input with location, search radius, optional budget per person, and
-    optional cuisine preferences. Returns a ranked list of RestaurantCandidate objects sorted by
+    Accepts plain text describing location, search radius, optional budget per person,
+    and optional cuisine preferences. Returns a ranked list of RestaurantCandidate objects sorted by
     rating descending. Uses the Google Places Nearby Search API. Returns an empty list when no
     results are found.
   provider:
@@ -17,17 +17,19 @@ food_recommender:
       description: >-
         Searches for restaurants near a geographic location for a given meal slot.
 
-        Input (JSON — FoodRecommenderInput schema):
+        Input: Accepts plain text describing as much of the following as possible:
           - timeofday: "breakfast" | "lunch" | "dinner"
-          - searchcenter: { latitude, longitude, address? }
-          - searchradiusmeters: integer 100–50000 (default 1000)
+          - searchcenter: latitude, longitude, and/or address
+          - searchradiusmeters: between 100 and 50000 (default 1000)
           - budgetpermealperperson: optional float in EUR
           - preferences: optional list of cuisine or dietary strings
 
         Returns a list of RestaurantCandidate objects sorted by rating descending, then by
         price_level ascending. Each candidate includes: id, name, location (lat/lng/address),
-        price_level (1–4), cuisines, rating (0–5), and summary. Returns an empty list when no
-        restaurants are found within the search area.
+        rating (0–5), an optional price_level (0–4, often absent), optional best-effort venue
+        labels (cuisines, usually empty since the Nearby Search API does not expose specific
+        cuisines), and a generated description. Returns an empty list when no restaurants are
+        found within the search area.
       tags:
         - recommendations
         - trip-planning
@@ -35,11 +37,11 @@ food_recommender:
         - restaurants
         - google-places
       examples:
-        - '{"timeofday": "lunch", "searchcenter": {"latitude": 45.4654, "longitude": 9.1866}, "searchradiusmeters": 500}'
-        - '{"timeofday": "dinner", "searchcenter": {"latitude": 45.4654, "longitude": 9.1866}, "budgetpermealperperson": 30, "preferences": ["italian", "pizza"]}'
-        - '{"timeofday": "breakfast", "searchcenter": {"latitude": 48.8566, "longitude": 2.3522}, "searchradiusmeters": 300, "preferences": ["cafe", "bakery"]}'
+        - "Lunch near 45.4654, 9.1866 within 500 meters"
+        - "Dinner in Milan around 45.4654, 9.1866, under 30 EUR per person, Italian or pizza places"
+        - "Breakfast at 48.8566, 2.3522, radius 300 meters, prefer cafe or bakery"
       input_modes:
-        - application/json
         - text/plain
       output_modes:
         - application/json
+   

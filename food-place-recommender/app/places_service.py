@@ -18,37 +18,25 @@ _BUDGET_TO_PRICE_LEVEL = [
 
 # Types to exclude from cuisine display
 _SKIP_TYPES = {
-    "food", "point_of_interest", "establishment",
-    "restaurant", "store", "health", "premise",
+    "food",
+    "point_of_interest",
+    "establishment",
+    "restaurant",
+    "store",
+    "health",
+    "premise",
 }
 
-# Map Places API type strings to human-readable cuisine labels
+# Human-readable labels for the venue `types` the Nearby Search (Legacy) API
+# actually returns. It does NOT expose specific cuisine types
+# (e.g. `italian_restaurant`); only generic venue types appear, so this map is
+# intentionally small. Anything unmapped is title-cased as a fallback.
 _CUISINE_MAP: dict[str, str] = {
-    "italian_restaurant":        "Italian",
-    "pizza_restaurant":          "Pizza",
-    "cafe":                      "Café",
-    "bakery":                    "Bakery",
-    "bar":                       "Bar",
-    "fast_food_restaurant":      "Fast Food",
-    "meal_takeaway":             "Takeaway",
-    "meal_delivery":             "Delivery",
-    "japanese_restaurant":       "Japanese",
-    "chinese_restaurant":        "Chinese",
-    "american_restaurant":       "American",
-    "french_restaurant":         "French",
-    "mediterranean_restaurant":  "Mediterranean",
-    "seafood_restaurant":        "Seafood",
-    "steak_house":               "Steakhouse",
-    "vegetarian_restaurant":     "Vegetarian",
-    "vegan_restaurant":          "Vegan",
-    "sushi_restaurant":          "Sushi",
-    "indian_restaurant":         "Indian",
-    "mexican_restaurant":        "Mexican",
-    "greek_restaurant":          "Greek",
-    "middle_eastern_restaurant": "Middle Eastern",
-    "brunch_restaurant":         "Brunch",
-    "breakfast_restaurant":      "Breakfast",
-    "wine_bar":                  "Wine Bar",
+    "cafe": "Café",
+    "bakery": "Bakery",
+    "bar": "Bar",
+    "meal_takeaway": "Takeaway",
+    "meal_delivery": "Delivery",
 }
 
 
@@ -100,8 +88,8 @@ class PlacesService:
         """
         slot_defaults = {
             "breakfast": "breakfast cafe",
-            "lunch":     "lunch restaurant",
-            "dinner":    "dinner restaurant",
+            "lunch": "lunch restaurant",
+            "dinner": "dinner restaurant",
         }
 
         keyword = (
@@ -112,10 +100,10 @@ class PlacesService:
 
         params: dict = {
             "location": f"{latitude},{longitude}",
-            "radius":   radius_meters,
-            "type":     "restaurant",
-            "keyword":  keyword,
-            "key":      env.google_places_api_key,
+            "radius": radius_meters,
+            "type": "restaurant",
+            "keyword": keyword,
+            "key": env.google_places_api_key,
         }
 
         if budget_per_person is not None:
@@ -132,7 +120,9 @@ class PlacesService:
             data = resp.json()
 
         status = data.get("status", "UNKNOWN")
-        print(f"[PlacesService] status={status} | results={len(data.get('results', []))}")
+        print(
+            f"[PlacesService] status={status} | results={len(data.get('results', []))}"
+        )
 
         if status not in _EMPTY_STATUSES:
             error_message = data.get("error_message", "no details provided")
@@ -161,7 +151,6 @@ class PlacesService:
                     price_level=price_level,
                     cuisines=cuisines or None,
                     rating=place.get("rating"),
-                    summary=place.get("editorial_summary", {}).get("overview"),
                 )
             )
 

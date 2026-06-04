@@ -28,13 +28,22 @@ class RestaurantCandidate(BaseModel):
     location: Location = Field(
         description="Geographic coordinates and address of the restaurant."
     )
-    price_level: Optional[float] = Field(
+    price_level: Optional[int] = Field(
         None,
-        description="Google Places price scale: 1 (cheap) → 4 (expensive).",
+        ge=0,
+        le=4,
+        description=(
+            "Google Places price scale: 0 (free) → 4 (most expensive). "
+            "Frequently absent, as many places carry no price level."
+        ),
     )
     cuisines: Optional[list[str]] = Field(
         None,
-        description="List of cuisine types (e.g. 'Italian', 'Japanese').",
+        description=(
+            "Best-effort venue labels derived from the Places 'types' field "
+            "(e.g. 'Bar', 'Café', 'Bakery'). Usually empty for restaurants, since "
+            "the Nearby Search API does not expose specific cuisines."
+        ),
     )
     rating: Optional[float] = Field(
         None,
@@ -42,15 +51,11 @@ class RestaurantCandidate(BaseModel):
         le=5,
         description="Average user rating on a 0–5 scale.",
     )
-    summary: Optional[str] = Field(
-        None,
-        description="A short editorial summary of the restaurant, if available.",
-    )
     description: str = Field(
         default="",
         description=(
             "A short rationale explaining why this restaurant was selected and ranked here, "
-            "grounded in the meal slot, budget, cuisines, rating, and any stated preferences."
+            "grounded in the meal slot, budget, rating, price level, and any stated preferences."
         ),
     )
 
