@@ -76,7 +76,7 @@ class AppSettings(BaseSettings):
 
     model_config = SettingsConfigDict(frozen=True, extra="ignore")
 
-    public_url: str = "http://localhost:8000"
+    public_url: str
     app_mode: AppModeEnum = AppModeEnum.A2A
 
 

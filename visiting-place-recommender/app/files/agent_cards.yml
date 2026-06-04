@@ -1,17 +1,22 @@
 place_recommender:
   name: Visiting Place Recommendation (VPR)
   version: "1.0.0"
-  url: "http://localhost:8000"
+  url: "http://localhost:8001"
   description: >-
-    Recommends places to visit in a destination city for trip planning. Each
-    request provides trip-planning context — destination, preferences, budget,
-    and other relevant details when available — and receives structured JSON
-    with an overall summary and a ranked list of places. Every recommended
-    place is in the destination city and chosen for relevance and schedule
-    suitability; some may be filtered in later planning steps. Uses Google Maps
-    place search. Returns an empty list when required information is missing
-    or no suitable matches are found, with an explanation of what is still
-    needed. Supports repeated calls as context is updated.
+    Recommends a set of places to visit in the destination city based on the
+    user's preferences, budget, and other relevant factors. Recommendations are
+    strong candidates for the final trip schedule.
+    Every recommended place must be located in the destination city.
+    Recommendations prioritize preference fit, budget fit, quality signals, and,
+    when the user's residence or accommodation area is known, practical access.
+    The agent requires an identifiable destination city before calling any
+    Google Maps tools or recommending places. An experience type or category is
+    also required unless the user explicitly asks for general recommendations.
+    If required information is missing, the agent returns empty `places` and
+    uses `description` to state clearly what is still needed.
+    The agent uses Google Maps only when both required gates are satisfied. It
+    bases factual place details on search results only and does not invent
+    places, links, coordinates, or other details.
   provider:
     organization: MSc Cloud Computing Project
     url: https://github.com/javad
@@ -19,28 +24,29 @@ place_recommender:
     - id: recommend_visiting_places
       name: Recommend Visiting Places
       description: >-
-        Recommends a set of places to visit in the destination city based on
-        preferences, budget, and other factors supplied in the request.
-
-        Objectives (in priority order): every place must be in the destination
-        city; recommendations should match user preferences; when residence or
-        accommodation area is known, proximity may influence ranking without
-        excluding worthwhile options farther away.
-
-        Requires an identifiable destination city in the input. Experience type
-        or category (e.g. historical, modern, sport, food, nightlife) is required
-        unless general recommendations were requested. When information is missing,
-        returns an empty list and explains what is still needed.
-
-        Places are ranked by: (1) city membership, (2) preference and category
-        fit, (3) budget fit, (4) rating and review quality, (5) proximity to
-        the user's residence or accommodation as a tiebreaker. Factual place
-        data comes from Google Maps search only.
-
-        Returns a ranked list of places, each with title, address, GPS
-        coordinates, phone, rating, reviews, price level, opening hours,
-        category, thumbnail, and relevant links. Includes an overall summary.
-        Recommendations are strong candidates for a trip schedule.
+        Recommends places to visit in the destination city based on the user's
+        preferences, budget, and other relevant factors.
+        Requires two gates before calling Google Maps tools or recommending
+        places: an identifiable destination city, and an experience type or
+        category unless the user explicitly requested general recommendations.
+        If either gate is missing, returns empty `places` and uses `description`
+        to state what is still needed.
+        Once both gates are satisfied, searches for specific places using
+        Google Maps queries that name the city explicitly and reflect the
+        requested category or preferences. Only places confirmed to be in the
+        destination city are eligible. Places outside the city are excluded.
+        Places are ranked with consecutive `rank` values starting from 0.
+        Ranking priority is: (1) confirmed destination-city eligibility,
+        (2) preference and category fit, (3) budget fit, (4) quality signals
+        such as ratings, reviews, or listing completeness, and (5) proximity or
+        practical access as a tiebreaker when residence or accommodation area is
+        known.
+        Returns empty `places` when the destination city is not defined, the
+        required experience type or category is missing, search yields no usable
+        matches, all tool attempts fail, or additional information is needed
+        before recommending responsibly.
+        Returns recommendations when the city and required context are clear and
+        search returns viable options. Includes a brief overall `description`.
       tags:
         - recommendations
         - trip-planning
@@ -52,6 +58,7 @@ place_recommender:
         - "I'm a solo traveler in Berlin who likes nightlife — where should I go?"
         - "Pick top cultural places in Kyoto for someone interested in temples and traditional gardens."
         - "Recommend vegetarian-friendly restaurants in Barcelona, mid-range budget."
+        - "Give me general recommendations for places to visit in Lisbon."
         - "Find great coffee shops."
       input_modes:
         - text/plain
