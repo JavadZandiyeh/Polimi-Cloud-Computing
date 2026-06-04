@@ -18,6 +18,7 @@ class TransportMode(str, Enum):
 
 
 class MealSlot(str, Enum):
+    breakfast = "breakfast"
     lunch = "lunch"
     dinner = "dinner"
 
@@ -79,7 +80,7 @@ class RestaurantSummary(BaseModel):
     id: str
     name: str
     location: Location
-    price_level: Optional[int] = Field(default=None, ge=1, le=4)
+    price_level: Optional[float] = Field(default=None, ge=1, le=4)
     cuisines: list[str] = Field(default_factory=list)
     rating: Optional[float] = Field(default=None, ge=0, le=5)
     summary: Optional[str] = None
@@ -92,7 +93,8 @@ class ScheduleEvent(BaseModel):
       - "visit":  set `place`.
       - "travel": set `origin`, `destination`, `transport_mode`,
                   `transport_description`, `estimated_travel_time_minutes`.
-      - "meal":   set `meal_slot`, `restaurant` (or leave null and set `synthetic`).
+      - "meal":   set `meal_slot` ("breakfast", "lunch", or "dinner"),
+                  `restaurant` (or leave null and set `synthetic`).
     Fields that do not apply to the event_type are left null.
     """
 
@@ -111,7 +113,7 @@ class ScheduleEvent(BaseModel):
     estimated_travel_time_minutes: Optional[int] = Field(default=None, ge=0)
 
     # meal
-    meal_slot: Optional[Literal["lunch", "dinner"]] = None
+    meal_slot: Optional[Literal["breakfast", "lunch", "dinner"]] = None
     restaurant: Optional[RestaurantSummary] = None
     synthetic: Optional[bool] = Field(
         default=None,

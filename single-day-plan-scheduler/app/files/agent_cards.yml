@@ -1,14 +1,18 @@
 plan_scheduler:
   name: Single Day Plan Scheduler (SDPS)
   version: "1.0.0"
-  url: "http://localhost:8000"
+  url: "http://localhost:8003"
   description: >-
-    Builds a single-day itinerary from a set of candidate places. Orders the visits,
-    inserts lunch and dinner using the food-place-recommender agent, and estimates travel
-    between consecutive stops using its own Google Routes MCP server. Accepts a structured
-    JSON DaySchedulingRequest and returns a structured DaySchedulingResult with an ordered
-    list of visit, travel, and meal events, the places that could not be scheduled, and
-    machine-readable warnings.
+    Builds one realistic single-day itinerary from the cluster of places assigned to that day
+    (as produced by the visiting place clusterer). Decides the visiting order from proximity,
+    opening hours, and per-place visit durations; estimates travel between consecutive stops via
+    its own Google Routes MCP server; and weaves in breakfast, lunch, and dinner (each only when
+    its time window overlaps the day) by calling the food-place-recommender agent itself — the
+    caller does NOT call the food recommender. Accepts a structured JSON DaySchedulingRequest for
+    ONE day and returns a structured JSON DaySchedulingResult: a chronological, non-overlapping
+    list of visit, travel, and meal events, the places that could not be fitted, and
+    machine-readable warnings. Every input place is preserved exactly — places are never invented
+    or modified, only ordered, scheduled, or moved to unscheduled_places with a reason.
   provider:
     organization: MSc Cloud Computing Project
     url: https://github.com/javad
@@ -16,20 +20,57 @@ plan_scheduler:
     - id: schedule_single_day_plan
       name: Schedule Single Day Plan
       description: >-
-        Plans one day of travel from candidate places, meal preferences, and transport options.
-
+        Plans ONE day of travel from a cluster of candidate places, meal preferences, and
+        transport options. Call once per trip day with that day's places.
         Input (JSON — DaySchedulingRequest schema):
-          - places: list of PlaceCandidate { id, name, location{latitude,longitude,address?},
-            estimated_visit_duration_minutes, estimated_cost?, category?, rating?, summary?,
-            priority_score?, opening_hours?[] }
-          - day_start: ISO 8601 datetime
-          - day_end: ISO 8601 datetime
-          - food_budget_per_day: optional float in EUR
-          - preferences: optional list of cuisine or activity strings
-          - acceptable_transport_modes: list of "walking" | "driving" | "transit" | "bicycling"
-
-        Returns a DaySchedulingResult with: description, day_schedule { date, events[] } where
-        each event is a visit, travel, or meal event; unscheduled_places[]; and warnings[].
+          - places (required, >= 1): list of PlaceCandidate, each:
+              - id (string, required): stable identifier; derive a slug from the name if absent.
+              - name (string, required).
+              - location (required): { latitude (-90..90), longitude (-180..180), address? }.
+              - estimated_visit_duration_minutes (int > 0, required): how long the visit takes.
+              - estimated_cost? (float >= 0), category? (string), rating? (0..5),
+                summary? (string).
+              - priority_score? (float): higher = preferred / scheduled earlier; used as the
+                starting anchor and as a tiebreaker, not as the sole ordering key.
+              - opening_hours? (list): each { day_of_week (lowercase, e.g. "monday"),
+                open_time ("HH:MM:SS"), close_time ("HH:MM:SS") }. Omit when always open / unknown.
+          - day_start, day_end (required): ISO 8601 datetimes bounding the day; day_end must be
+            after day_start. The plan's date is taken from day_start.
+          - food_budget_per_day? (float EUR): split evenly across the applicable meals.
+          - preferences? (list of cuisine/activity strings): passed through to the food recommender.
+          - acceptable_transport_modes? (list, default ["walking"]): ordered subset of
+            "walking" | "driving" | "transit" | "bicycling"; the first entry is the transport mode
+            used for every leg.
+        Behaviour:
+          - Ordering: greedy nearest-neighbour by estimated travel time to minimise travel, while
+            respecting opening hours (never arrive before a place opens or finish after it closes)
+            and fitting long visits early enough to complete before closing time, day_end, and the
+            dinner window. priority_score chooses the starting place and breaks ties.
+          - Meals (each ~60 min, inserted only when its window overlaps [day_start, day_end];
+            per-meal budget = food_budget_per_day / number of applicable meals):
+              · breakfast 07:00–10:30 — searched near the FIRST place and eaten before the first visit.
+              · lunch 12:00–14:00 — searched near the current location, mid-day.
+              · dinner 19:00–21:00 — searched near the current location, before finishing the day.
+            Meals are searched within ~500 m so the traveller stays close. If no restaurant is
+            found, a placeholder meal (restaurant=null, synthetic=true) is inserted instead.
+          - A place that is closed on arrival, closes before the visit ends, or cannot finish
+            before day_end is moved to unscheduled_places with a reason; it is never altered.
+          - All travel times and all restaurants come from tool output only; nothing is fabricated.
+        Output (JSON — DaySchedulingResult schema):
+          - description: natural-language summary (order chosen, places scheduled, meals inserted,
+            trade-offs); explains why when no viable plan could be built.
+          - day_schedule: { date, events[] } — chronological, non-overlapping events; travel
+            precedes the visit/meal it leads to. Each event has event_type, ISO 8601 start_time and
+            end_time, and only the fields for its type:
+              · visit  -> place
+              · travel -> origin, destination, transport_mode, transport_description,
+                          estimated_travel_time_minutes
+              · meal   -> meal_slot ("breakfast"|"lunch"|"dinner") and either restaurant
+                          (synthetic=false) or restaurant=null with synthetic=true
+          - unscheduled_places: the PlaceCandidate objects that could not be fitted, unchanged.
+          - warnings: machine-readable tokens, e.g. "place_unscheduled:<id>:<reason>",
+            "meal_not_inserted:<slot>:insufficient_time", "no_restaurant_candidate:<slot>",
+            "route_estimation_failed_using_fallback:<id>".
       tags:
         - planning
         - itinerary
@@ -38,7 +79,8 @@ plan_scheduler:
         - travel
       examples:
         - '{"places": [{"id": "duomo", "name": "Duomo di Milano", "location": {"latitude": 45.4641, "longitude": 9.1919}, "estimated_visit_duration_minutes": 90, "priority_score": 0.9}], "day_start": "2026-06-01T09:00:00", "day_end": "2026-06-01T21:00:00", "acceptable_transport_modes": ["walking"]}'
-        - '{"places": [{"id": "castello", "name": "Castello Sforzesco", "location": {"latitude": 45.4705, "longitude": 9.1796}, "estimated_visit_duration_minutes": 75}], "day_start": "2026-06-01T10:00:00", "day_end": "2026-06-01T20:00:00", "food_budget_per_day": 60, "preferences": ["italian"], "acceptable_transport_modes": ["walking", "transit"]}'
+        - '{"places": [{"id": "castello", "name": "Castello Sforzesco", "location": {"latitude": 45.4705, "longitude": 9.1796}, "estimated_visit_duration_minutes": 75}, {"id": "brera", "name": "Pinacoteca di Brera", "location": {"latitude": 45.4719, "longitude": 9.1881}, "estimated_visit_duration_minutes": 120, "opening_hours": [{"day_of_week": "monday", "open_time": "10:00:00", "close_time": "18:00:00"}]}], "day_start": "2026-06-01T08:00:00", "day_end": "2026-06-01T21:00:00", "food_budget_per_day": 60, "preferences": ["italian"], "acceptable_transport_modes": ["walking", "transit"]}'
+        - '{"places": [{"id": "colosseum", "name": "Colosseum", "location": {"latitude": 41.8902, "longitude": 12.4922}, "estimated_visit_duration_minutes": 120, "priority_score": 1.0}, {"id": "forum", "name": "Roman Forum", "location": {"latitude": 41.8925, "longitude": 12.4853}, "estimated_visit_duration_minutes": 90}, {"id": "pantheon", "name": "Pantheon", "location": {"latitude": 41.8986, "longitude": 12.4769}, "estimated_visit_duration_minutes": 45}], "day_start": "2026-06-02T08:30:00", "day_end": "2026-06-02T20:30:00", "food_budget_per_day": 90, "acceptable_transport_modes": ["walking"]}'
       input_modes:
         - application/json
         - text/plain
