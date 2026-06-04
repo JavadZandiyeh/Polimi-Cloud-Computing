@@ -78,7 +78,9 @@ class FoodRecommenderClient:
 
         return self._extract_restaurants(task)
 
-    def _poll_for_completion(self, client: httpx.Client, task_id: str) -> dict[str, Any]:
+    def _poll_for_completion(
+        self, client: httpx.Client, task_id: str
+    ) -> dict[str, Any]:
         started = time.monotonic()
         while True:
             if time.monotonic() - started > self._max_wait:
@@ -107,7 +109,9 @@ class FoodRecommenderClient:
     def _extract_task_id(self, payload: dict[str, Any]) -> str:
         task_id = payload.get("result", {}).get("id")
         if not isinstance(task_id, str) or not task_id:
-            raise FoodRecommenderError("A2A message/send response did not include a task id")
+            raise FoodRecommenderError(
+                "A2A message/send response did not include a task id"
+            )
         return task_id
 
     def _extract_restaurants(self, task: dict[str, Any]) -> list[dict[str, Any]]:

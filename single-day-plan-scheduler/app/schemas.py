@@ -40,7 +40,9 @@ class Location(BaseModel):
 class OpeningHoursEntry(BaseModel):
     """Opening window for a place on a given weekday."""
 
-    day_of_week: str = Field(min_length=1, description="Lowercase weekday name, e.g. 'monday'.")
+    day_of_week: str = Field(
+        min_length=1, description="Lowercase weekday name, e.g. 'monday'."
+    )
     open_time: time
     close_time: time
 
@@ -145,7 +147,9 @@ class DaySchedulingRequest(BaseModel):
             return []
         if not isinstance(value, list):
             raise ValueError("preferences must be a list")
-        return list(dict.fromkeys(item.strip().lower() for item in value if item.strip()))
+        return list(
+            dict.fromkeys(item.strip().lower() for item in value if item.strip())
+        )
 
     @field_validator("acceptable_transport_modes")
     @classmethod
