@@ -3,9 +3,12 @@ from __future__ import annotations
 import json
 import time
 import uuid
+from concurrent.futures import ThreadPoolExecutor
 from typing import Any
 
 import httpx
+import logfire
+from opentelemetry import context as otel_context
 from strands import tool
 
 from environment_service import env
@@ -129,13 +132,25 @@ class A2AClient:
         return data
 
 
-def _call_agent(base_url: str, request_text: str) -> str:
-    """Invoke a downstream agent and return its result as a JSON string for the LLM."""
-    try:
-        result = A2AClient(base_url).invoke(request_text)
-    except A2AClientError as exc:
-        return json.dumps({"error": str(exc)})
-    return json.dumps(result, default=str)
+def _call_agent(base_url: str, request_text: str, agent: str) -> str:
+    """Invoke a downstream agent and return its result as a JSON string for the LLM.
+
+    Wraps the call in a Logfire span named after the target agent so each A2A round-trip
+    shows up as its own labelled, timed step in the orchestrator's trace.
+    """
+    with logfire.span("a2a call → {agent}", agent=agent) as span:
+        span.set_attribute("a2a.base_url", base_url)
+        span.set_attribute("a2a.request_chars", len(request_text))
+        try:
+            result = A2AClient(base_url).invoke(request_text)
+        except A2AClientError as exc:
+            span.set_attribute("a2a.ok", False)
+            span.set_attribute("a2a.error", str(exc))
+            return json.dumps({"error": str(exc)})
+        span.set_attribute("a2a.ok", True)
+        if isinstance(result, dict):
+            span.set_attribute("a2a.result_keys", sorted(result.keys()))
+        return json.dumps(result, default=str)
 
 
 # ---------------------------------------------------------------------------
@@ -169,7 +184,7 @@ def recommend_visiting_places(request: str) -> str:
         `type` (category labels), `thumbnail` (image URL), `links` {website, photos, reviews},
         and `rank`. On failure, a JSON object with an `error` key.
     """
-    return _call_agent(env.vpr_url, request)
+    return _call_agent(env.vpr_url, request, "visiting-place-recommender")
 
 
 @tool
@@ -194,7 +209,7 @@ def cluster_visiting_places(request: str) -> str:
         scheduling that day. `clusters` is empty when the places or number of days are
         missing. On failure, a JSON object with an `error` key.
     """
-    return _call_agent(env.vpc_url, request)
+    return _call_agent(env.vpc_url, request, "visiting-place-clusterer")
 
 
 @tool
@@ -202,7 +217,7 @@ def schedule_single_day_plan(request: str) -> str:
     """Build a single day's timetable from a cluster of places (Agent 3 — SDS).
 
     Call this once per trip day, passing that day's cluster of places. The scheduler
-    orders the visits, estimates travel between them, and inserts lunch and dinner
+    orders the visits, estimates travel between them, and inserts lunch
     (it calls the food recommender itself — you do NOT call it).
 
     Args:
@@ -246,11 +261,78 @@ def schedule_single_day_plan(request: str) -> str:
         type visit/travel/meal), `unscheduled_places`, and `warnings`. On failure, a JSON
         object with an `error` key.
     """
-    return _call_agent(env.sds_url, request)
+    return _call_agent(env.sds_url, request, "single-day-plan-scheduler")
+
+
+@tool
+def schedule_days_plan(request: str) -> str:
+    """Schedule SEVERAL trip days AT ONCE, in parallel (Agent 3 — SDS, fan-out).
+
+    Use this INSTEAD of calling `schedule_single_day_plan` once per day for the initial
+    scheduling pass: pass every day's cluster together and they are sent to the scheduler
+    CONCURRENTLY (the days are independent), so an N-day trip is scheduled in roughly the
+    time of one day instead of N sequential calls. Use `schedule_single_day_plan` afterwards
+    only to RE-RUN an individual day that came back incomplete (gap filling, retries).
+
+    Args:
+        request: A JSON ARRAY string whose elements are each a DaySchedulingRequest for ONE
+            day — exactly the same per-day object documented on `schedule_single_day_plan`
+            (one entry per cluster, in day order). An object of the form {"days": [ ... ]}
+            with that same array under `days` is also accepted.
+
+    Returns:
+        A JSON ARRAY string of per-day results, in the SAME ORDER as the input days. Each
+        element is the scheduler's output for that day (`description`, `day_schedule`,
+        `unscheduled_places`, `warnings`) or a JSON object with an `error` key if that day
+        failed. Validate each element exactly as you would a single-day result, and re-run
+        any failing/incomplete day with `schedule_single_day_plan`.
+    """
+    try:
+        parsed = json.loads(request)
+    except json.JSONDecodeError as exc:
+        return json.dumps({"error": f"schedule_days_plan: invalid JSON request: {exc}"})
+
+    if isinstance(parsed, dict):
+        # Accept {"days": [ ... ]}, or a single day object passed on its own.
+        parsed = parsed["days"] if "days" in parsed else [parsed]
+    if not isinstance(parsed, list) or not parsed:
+        return json.dumps(
+            {"error": "schedule_days_plan: request must be a non-empty JSON array of days"}
+        )
+
+    day_requests = [json.dumps(day, default=str) for day in parsed]
+
+    # The worker runs in a separate thread, so attach the current OTEL context inside it;
+    # otherwise the per-day spans would not nest under the parent fan-out span.
+    parent_ctx = otel_context.get_current()
+
+    def _schedule_one(indexed: tuple[int, str]) -> str:
+        index, day_request = indexed
+        token = otel_context.attach(parent_ctx)
+        try:
+            with logfire.span("schedule day {day}", day=index + 1):
+                return _call_agent(env.sds_url, day_request, "single-day-plan-scheduler")
+        finally:
+            otel_context.detach(token)
+
+    # Fan out: the days are independent, so call the scheduler concurrently. Each
+    # _call_agent is a blocking A2A round-trip, so threads (not asyncio) parallelise it.
+    with logfire.span(
+        "schedule {count} days in parallel", count=len(day_requests)
+    ) as span:
+        with ThreadPoolExecutor(max_workers=len(day_requests)) as pool:
+            results = list(pool.map(_schedule_one, enumerate(day_requests)))
+        span.set_attribute(
+            "days.failed", sum(1 for r in results if '"error"' in r)
+        )
+
+    # Results are already JSON strings; re-join into a single JSON array for the LLM.
+    return f"[{','.join(results)}]"
 
 
 ORCHESTRATOR_TOOLS = [
     recommend_visiting_places,
     cluster_visiting_places,
+    schedule_days_plan,
     schedule_single_day_plan,
 ]

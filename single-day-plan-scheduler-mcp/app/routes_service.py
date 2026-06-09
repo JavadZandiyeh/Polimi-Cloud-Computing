@@ -3,6 +3,7 @@ from __future__ import annotations
 from typing import Optional
 
 import httpx
+import logfire
 
 from environment_service import env
 from schemas import PlaceDetail, PlaceDetails, RouteEstimate
@@ -35,68 +36,71 @@ class RoutesService:
     ) -> RouteEstimate:
         """Estimate distance and duration between two coordinates for a transport mode."""
         normalized_mode = mode.strip().lower()
-        if normalized_mode not in GOOGLE_TRAVEL_MODES:
-            raise RouteEstimationError(
-                "mode must be one of: walking, driving, transit, bicycling"
-            )
-        if not env.google_maps_api_key:
-            raise RouteEstimationError(
-                "GOOGLE_MAPS_API_KEY must be set for route estimation"
-            )
+        with logfire.span("route estimate · {mode}", mode=normalized_mode) as span:
+            if normalized_mode not in GOOGLE_TRAVEL_MODES:
+                raise RouteEstimationError(
+                    "mode must be one of: walking, driving, transit, bicycling"
+                )
+            if not env.google_maps_api_key:
+                raise RouteEstimationError(
+                    "GOOGLE_MAPS_API_KEY must be set for route estimation"
+                )
 
-        payload: dict = {
-            "origin": {
-                "location": {
-                    "latLng": {
-                        "latitude": origin_latitude,
-                        "longitude": origin_longitude,
+            payload: dict = {
+                "origin": {
+                    "location": {
+                        "latLng": {
+                            "latitude": origin_latitude,
+                            "longitude": origin_longitude,
+                        }
                     }
-                }
-            },
-            "destination": {
-                "location": {
-                    "latLng": {
-                        "latitude": destination_latitude,
-                        "longitude": destination_longitude,
-                    }
-                }
-            },
-            "travelMode": GOOGLE_TRAVEL_MODES[normalized_mode],
-            "units": "METRIC",
-        }
-        if departure_time:
-            payload["departureTime"] = departure_time
-
-        with httpx.Client(timeout=env.google_routes_timeout_seconds) as client:
-            response = client.post(
-                GOOGLE_ROUTES_URL,
-                json=payload,
-                headers={
-                    "X-Goog-Api-Key": env.google_maps_api_key,
-                    "X-Goog-FieldMask": FIELD_MASK,
                 },
-            )
-            response.raise_for_status()
+                "destination": {
+                    "location": {
+                        "latLng": {
+                            "latitude": destination_latitude,
+                            "longitude": destination_longitude,
+                        }
+                    }
+                },
+                "travelMode": GOOGLE_TRAVEL_MODES[normalized_mode],
+                "units": "METRIC",
+            }
+            if departure_time:
+                payload["departureTime"] = departure_time
 
-        routes = response.json().get("routes", [])
-        if not routes:
-            raise RouteEstimationError(
-                "Google Routes response did not include any routes"
-            )
-        route = routes[0]
+            with httpx.Client(timeout=env.google_routes_timeout_seconds) as client:
+                response = client.post(
+                    GOOGLE_ROUTES_URL,
+                    json=payload,
+                    headers={
+                        "X-Goog-Api-Key": env.google_maps_api_key,
+                        "X-Goog-FieldMask": FIELD_MASK,
+                    },
+                )
+                response.raise_for_status()
 
-        return RouteEstimate(
-            mode=normalized_mode,
-            estimated_distance_km=round(route["distanceMeters"] / 1000, 2),
-            estimated_duration_minutes=RoutesService._duration_to_minutes(
-                route["duration"]
-            ),
-            notes=[
-                "provider=google_routes",
-                f"transport_mode={normalized_mode}",
-                *route.get("warnings", []),
-            ],
-        )
+            routes = response.json().get("routes", [])
+            if not routes:
+                raise RouteEstimationError(
+                    "Google Routes response did not include any routes"
+                )
+            route = routes[0]
+
+            distance_km = round(route["distanceMeters"] / 1000, 2)
+            duration_minutes = RoutesService._duration_to_minutes(route["duration"])
+            span.set_attribute("route.distance_km", distance_km)
+            span.set_attribute("route.duration_minutes", duration_minutes)
+            return RouteEstimate(
+                mode=normalized_mode,
+                estimated_distance_km=distance_km,
+                estimated_duration_minutes=duration_minutes,
+                notes=[
+                    "provider=google_routes",
+                    f"transport_mode={normalized_mode}",
+                    *route.get("warnings", []),
+                ],
+            )
 
     @staticmethod
     def get_place_details(place_ids: list[str]) -> PlaceDetails:

@@ -106,6 +106,9 @@ class ObservabilitySettings(BaseSettings):
     model_config = ConfigDict(frozen=True)
 
     logfire_token: str = ""
+    # Deployment label shown in the Logfire UI to separate runs (e.g. local, staging,
+    # production). Set LOGFIRE_ENVIRONMENT per deployment; defaults to local-dev.
+    logfire_environment: str = "local"
 
 
 class EnvironmentVariables(BaseModel):
@@ -146,13 +149,23 @@ class EnvironmentService(metaclass=SingletonMeta):
         self._setup_logfire()
 
     def _setup_logfire(self) -> None:
-        """Configure Logfire when a token is present."""
-        if not self.logfire_token:
-            return
+        """Configure Logfire and instrument this agent's frameworks when a token is present.
 
+        Names this service in the Logfire UI and captures the pydantic-ai agent run; the
+        clustering step itself adds a dedicated span (see clustering_service) so each
+        request reads as one labelled, drill-down-able trace.
+        """
         import logfire
 
-        logfire.configure(token=self.logfire_token)
+        # Always configure so manual spans are valid; only export when a token is set.
+        logfire.configure(
+            token=self.logfire_token or None,
+            send_to_logfire="if-token-present",
+            service_name="visiting-place-clusterer",
+            service_version="1.0.0",
+            environment=self.logfire_environment,
+            console=False,
+        )
         logfire.instrument_pydantic_ai()
 
     # --- Application ---
@@ -220,6 +233,11 @@ class EnvironmentService(metaclass=SingletonMeta):
     def logfire_token(self) -> str:
         """Return the Logfire token, if configured."""
         return self._env.observability.logfire_token
+
+    @property
+    def logfire_environment(self) -> str:
+        """Return the deployment label used to group traces in the Logfire UI."""
+        return self._env.observability.logfire_environment
 
 
 env = EnvironmentService()

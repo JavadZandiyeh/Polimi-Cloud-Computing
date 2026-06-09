@@ -4,6 +4,8 @@ import asyncio
 import json
 from typing import Any, Callable
 
+import logfire
+
 from starlette.applications import Starlette
 from starlette.requests import Request
 from starlette.responses import HTMLResponse, JSONResponse, StreamingResponse
@@ -14,6 +16,7 @@ from strands import Agent
 _TOOL_LABELS = {
     "recommend_visiting_places": "Recommending places to visit (Agent 1)",
     "cluster_visiting_places": "Grouping places by day (Agent 2)",
+    "schedule_days_plan": "Scheduling all days in parallel (Agent 3)",
     "schedule_single_day_plan": "Scheduling a day (Agent 3)",
 }
 
@@ -76,27 +79,36 @@ def create_web_app(
         session = await store.get(session_id)
 
         async def event_stream():
-            try:
-                async with session.lock:
-                    seen_tools: set[str] = set()
-                    async for event in session.agent.stream_async(message):
-                        tool_use = event.get("current_tool_use") or {}
-                        name = tool_use.get("name")
-                        tool_id = tool_use.get("toolUseId")
-                        if name and tool_id and tool_id not in seen_tools:
-                            seen_tools.add(tool_id)
-                            yield _sse(
-                                {
-                                    "type": "tool",
-                                    "label": _TOOL_LABELS.get(name, name),
-                                }
-                            )
-                        text = event.get("data")
-                        if isinstance(text, str) and text:
-                            yield _sse({"type": "text", "text": text})
-                yield _sse({"type": "done"})
-            except Exception as exc:  # surface failures to the UI instead of hanging
-                yield _sse({"type": "error", "message": str(exc)})
+            # One span per chat turn groups the agent's LLM calls, tool invocations, and
+            # downstream A2A spans into a single, readable trace in the Logfire UI.
+            with logfire.span(
+                "orchestrator chat turn",
+                session_id=session_id,
+                message_chars=len(message),
+            ) as span:
+                try:
+                    async with session.lock:
+                        seen_tools: set[str] = set()
+                        async for event in session.agent.stream_async(message):
+                            tool_use = event.get("current_tool_use") or {}
+                            name = tool_use.get("name")
+                            tool_id = tool_use.get("toolUseId")
+                            if name and tool_id and tool_id not in seen_tools:
+                                seen_tools.add(tool_id)
+                                yield _sse(
+                                    {
+                                        "type": "tool",
+                                        "label": _TOOL_LABELS.get(name, name),
+                                    }
+                                )
+                            text = event.get("data")
+                            if isinstance(text, str) and text:
+                                yield _sse({"type": "text", "text": text})
+                    span.set_attribute("tools.invoked", len(seen_tools))
+                    yield _sse({"type": "done"})
+                except Exception as exc:  # surface failures to the UI instead of hanging
+                    span.set_attribute("error", str(exc))
+                    yield _sse({"type": "error", "message": str(exc)})
 
         return StreamingResponse(
             event_stream(),
@@ -132,9 +144,14 @@ _INDEX_HTML = """<!DOCTYPE html>
   .me { align-self:flex-end; background:var(--me); border-bottom-right-radius:4px; }
   .bot { align-self:flex-start; background:var(--bot); border-bottom-left-radius:4px; }
   .status { align-self:flex-start; color:var(--muted); font-size:13px; font-style:italic; padding-left:6px; }
-  .bot h2 { font-size:16px; margin:10px 0 4px; }
+  .bot h1 { font-size:20px; margin:14px 0 6px; color:#fff; }
+  .bot h2 { font-size:17px; margin:14px 0 4px; }
+  .bot h3 { font-size:14px; margin:8px 0 2px; color:#cbd5e1; }
   .bot strong { color:#fff; }
-  .bot img { max-width:320px; width:100%; border-radius:10px; display:block; margin:8px 0; }
+  .bot em { font-style:italic; }
+  .bot code { background:#0b1220; padding:1px 6px; border-radius:5px; font-size:13px; }
+  .bot hr { border:none; border-top:1px solid #475569; margin:16px 0; }
+  .bot img { max-width:340px; width:100%; border-radius:10px; display:block; margin:8px 0; }
   .bot a { color:#93c5fd; text-decoration:underline; }
   form { display:flex; gap:10px; padding:16px 20px; background:var(--panel); border-top:1px solid #0b1220; }
   #input { flex:1; resize:none; border:1px solid #475569; background:#0b1220; color:var(--text);
@@ -171,15 +188,23 @@ when, and what you enjoy (history, food, art, nightlife&hellip;), and I'll build
   function escapeHtml(s) {
     return s.replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;');
   }
-  // Minimal, safe formatting: escape first, then render markdown images and links
-  // (http/https only), ## headings, and bold (**x**). Images must run before links
-  // so '![alt](url)' is not consumed by the link rule.
+  // Safe Markdown rendering. Escape first, then convert (order matters):
+  //   images -> links (so '![alt](url)' is not consumed by the link rule);
+  //   headings ### -> ## -> # (longest marker first);
+  //   horizontal rules; bullet lists (- or *); then inline bold, italic, code.
+  // Only http/https URLs are allowed. pre-wrap on .bot preserves line breaks.
   function format(s) {
     let h = escapeHtml(s);
     h = h.replace(/!\\[([^\\]]*)\\]\\((https?:\\/\\/[^\\s)]+)\\)/g, '<img src="$2" alt="$1" />');
     h = h.replace(/\\[([^\\]]+)\\]\\((https?:\\/\\/[^\\s)]+)\\)/g, '<a href="$2" target="_blank" rel="noopener">$1</a>');
-    h = h.replace(/^##\\s?(.*)$/gm, '<h2>$1</h2>');
+    h = h.replace(/^###\\s+(.*)$/gm, '<h3>$1</h3>');
+    h = h.replace(/^##\\s+(.*)$/gm, '<h2>$1</h2>');
+    h = h.replace(/^#\\s+(.*)$/gm, '<h1>$1</h1>');
+    h = h.replace(/^\\s*(?:---|\\*\\*\\*|___)\\s*$/gm, '<hr/>');
+    h = h.replace(/^(\\s*)[-*]\\s+(.*)$/gm, '$1\\u2022 $2');
     h = h.replace(/\\*\\*([^*]+)\\*\\*/g, '<strong>$1</strong>');
+    h = h.replace(/\\*([^*\\n]+)\\*/g, '<em>$1</em>');
+    h = h.replace(/`([^`\\n]+)`/g, '<code>$1</code>');
     return h;
   }
   function addMessage(cls) {

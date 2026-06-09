@@ -6,6 +6,7 @@ import uuid
 from typing import Any, Optional
 
 import httpx
+import logfire
 
 from environment_service import env
 
@@ -157,19 +158,33 @@ def recommend_restaurants(
         each with id, name, location, price_level, cuisines, rating, summary) and key
         'note' describing the outcome. The list is empty when nothing was found.
     """
-    client = FoodRecommenderClient()
-    try:
-        restaurants = client.recommend(
-            meal_slot=meal_slot,
-            latitude=latitude,
-            longitude=longitude,
-            search_radius_meters=search_radius_meters,
-            budget_per_person=budget_per_person,
-            preferences=preferences or [],
-        )
-    except FoodRecommenderError as exc:
-        return {"restaurants": [], "note": f"food_recommender_unavailable: {exc}"}
+    with logfire.span(
+        "recommend restaurants · {meal_slot}", meal_slot=meal_slot
+    ) as span:
+        span.set_attribute("food.radius_meters", search_radius_meters)
+        span.set_attribute("food.coordinates", f"{latitude},{longitude}")
+        span.set_attribute("food.budget_per_person", budget_per_person)
 
-    if not restaurants:
-        return {"restaurants": [], "note": "no_restaurants_found"}
-    return {"restaurants": restaurants, "note": f"found {len(restaurants)} restaurants"}
+        client = FoodRecommenderClient()
+        try:
+            restaurants = client.recommend(
+                meal_slot=meal_slot,
+                latitude=latitude,
+                longitude=longitude,
+                search_radius_meters=search_radius_meters,
+                budget_per_person=budget_per_person,
+                preferences=preferences or [],
+            )
+        except FoodRecommenderError as exc:
+            span.set_attribute("food.ok", False)
+            span.set_attribute("food.error", str(exc))
+            return {"restaurants": [], "note": f"food_recommender_unavailable: {exc}"}
+
+        span.set_attribute("food.ok", True)
+        span.set_attribute("food.result_count", len(restaurants))
+        if not restaurants:
+            return {"restaurants": [], "note": "no_restaurants_found"}
+        return {
+            "restaurants": restaurants,
+            "note": f"found {len(restaurants)} restaurants",
+        }

@@ -2,6 +2,8 @@ from __future__ import annotations
 
 import random
 
+import logfire
+
 from schemas import Place
 
 
@@ -32,21 +34,32 @@ class ClusteringService:
         sizes differ by at most one place. When there are fewer places than days,
         one cluster is produced per place (each day cannot otherwise be filled).
         """
-        if not places:
-            return []
+        with logfire.span(
+            "cluster {place_count} places into {day_count} days",
+            place_count=len(places),
+            day_count=num_days,
+        ) as span:
+            if not places:
+                span.set_attribute("cluster_sizes", [])
+                return []
 
-        k = max(1, min(num_days, len(places)))
-        if k == 1:
-            return [list(places)]
+            k = max(1, min(num_days, len(places)))
+            if k == 1:
+                span.set_attribute("cluster_sizes", [len(places)])
+                return [list(places)]
 
-        coords = [ClusteringService._coord(p) for p in places]
-        labels = ClusteringService._balanced_kmeans(coords, k, random_seed=random_seed)
+            coords = [ClusteringService._coord(p) for p in places]
+            labels = ClusteringService._balanced_kmeans(
+                coords, k, random_seed=random_seed
+            )
 
-        clusters: list[list[Place]] = [[] for _ in range(k)]
-        for place, label in zip(places, labels):
-            clusters[label].append(place)
+            clusters: list[list[Place]] = [[] for _ in range(k)]
+            for place, label in zip(places, labels):
+                clusters[label].append(place)
 
-        return clusters
+            span.set_attribute("cluster_count", k)
+            span.set_attribute("cluster_sizes", [len(c) for c in clusters])
+            return clusters
 
     # ------------------------------------------------------------------
     # Balanced K-means core

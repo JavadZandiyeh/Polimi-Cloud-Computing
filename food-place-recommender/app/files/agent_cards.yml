@@ -28,8 +28,9 @@ food_recommender:
         price_level ascending. Each candidate includes: id, name, location (lat/lng/address),
         rating (0–5), an optional price_level (0–4, often absent), optional best-effort venue
         labels (cuisines, usually empty since the Nearby Search API does not expose specific
-        cuisines), and a generated description. Returns an empty list when no restaurants are
-        found within the search area.
+        cuisines), an optional photo_url (an embeddable Google Places photo, when available), and
+        a generated description. Returns an empty list when no restaurants are found within the
+        search area.
       tags:
         - recommendations
         - trip-planning

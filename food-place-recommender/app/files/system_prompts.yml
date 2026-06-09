@@ -100,6 +100,10 @@ food_recommender: |
 
   * Return `FoodRecommenderOutput`.
   * Populate `restaurantcandidates` with the sorted and annotated candidates.
+  * Copy every factual field the tool returned for each candidate UNCHANGED —
+    including `id`, `name`, `location`, `price_level`, `cuisines`, `rating`, and
+    `photo_url`. In particular, carry `photo_url` through verbatim when the tool
+    provides one (it lets the itinerary show a photo); leave it null otherwise.
   * Write a brief top-level `description` confirming the meal slot, search area
     or coordinates, radius, and result count.
   * If the tool returns no candidates, return empty `restaurantcandidates` and

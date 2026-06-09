@@ -51,6 +51,13 @@ class RestaurantCandidate(BaseModel):
         le=5,
         description="Average user rating on a 0–5 scale.",
     )
+    photo_url: Optional[str] = Field(
+        None,
+        description=(
+            "URL of a representative photo of the restaurant (Google Places Photo), "
+            "suitable for embedding directly as an image. Null when no photo is available."
+        ),
+    )
     description: str = Field(
         default="",
         description=(

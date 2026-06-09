@@ -137,14 +137,24 @@ place_recommender: |
 
   Tool errors and retries:
 
-  * If a tool call fails or returns an error, retry up to 2 more times.
-  * Adjust the query on each retry by simplifying terms, broadening the category,
-    removing restrictive filters, or using alternative phrasing.
+  * On failure a tool returns {"error": {...}} with: `message` (reason), `type`
+    (client_error / server_error / timeout / connection_error / unexpected_error),
+    `retryable` (bool), `status_code`, `attempts`, and the `query` that failed.
+  * If `retryable` is true (server_error / timeout / connection_error), retry up to
+    2 more times, adjusting the query — simplify terms, broaden the category, remove
+    restrictive filters, or rephrase.
+  * If `retryable` is false (client_error / unexpected_error — e.g. a bad query,
+    authentication, or quota problem), DO NOT retry the same call; re-calling will not
+    help. Fix the query if it was clearly malformed, otherwise stop and report.
   * If results are thin but usable, retry once with a broader query before
     accepting partial results.
-  * If all attempts fail, return empty `places` and set `description` to a brief,
-    user-friendly message explaining that the search could not be completed.
-  * Do not expose raw tool errors.
+  * If all attempts fail, return empty `places` and set `description` to a clear,
+    DETAILED but user-friendly explanation of what went wrong, so the orchestrator can
+    decide whether to call again: state the kind of problem (e.g. the maps service was
+    temporarily unavailable / timed out — worth retrying; vs. a configuration or quota
+    problem — retrying now will not help) and which destination/category was attempted.
+  * Do not paste raw stack traces or the API key, but DO convey the underlying reason
+    and whether the problem looks temporary.
 
   Return empty `places` when:
 

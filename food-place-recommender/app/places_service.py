@@ -3,6 +3,7 @@ from __future__ import annotations
 import uuid
 
 import httpx
+import logfire
 
 from environment_service import env
 from schemas import Location, RestaurantCandidate
@@ -45,6 +46,24 @@ def _budget_to_max_price(budget: float) -> int | None:
         if budget <= threshold:
             return level
     return None
+
+
+def _photo_url(place: dict, max_width: int = 600) -> str | None:
+    """Build an embeddable Google Places Photo URL from a Nearby Search result.
+
+    The Places Photo endpoint requires the API key in the URL, so the returned link
+    carries the key. Returns None when the place has no photo.
+    """
+    photos = place.get("photos") or []
+    if not photos:
+        return None
+    reference = photos[0].get("photo_reference")
+    if not reference:
+        return None
+    return (
+        f"{_PLACES_BASE}/photo"
+        f"?maxwidth={max_width}&photo_reference={reference}&key={env.google_places_api_key}"
+    )
 
 
 def _parse_cuisines(types: list[str]) -> list[str]:
@@ -111,47 +130,56 @@ class PlacesService:
             if max_price is not None:
                 params["maxprice"] = max_price
 
-        async with httpx.AsyncClient(timeout=10) as client:
-            resp = await client.get(
-                f"{_PLACES_BASE}/nearbysearch/json",
-                params=params,
-            )
-            resp.raise_for_status()
-            data = resp.json()
+        with logfire.span(
+            "places nearby search · {meal_slot}", meal_slot=meal_slot
+        ) as span:
+            span.set_attribute("places.keyword", keyword)
+            span.set_attribute("places.radius_meters", radius_meters)
+            span.set_attribute("places.coordinates", f"{latitude},{longitude}")
 
-        status = data.get("status", "UNKNOWN")
-        print(
-            f"[PlacesService] status={status} | results={len(data.get('results', []))}"
-        )
-
-        if status not in _EMPTY_STATUSES:
-            error_message = data.get("error_message", "no details provided")
-            raise PlacesApiError(
-                f"Google Places API returned status '{status}': {error_message}"
-            )
-
-        candidates: list[RestaurantCandidate] = []
-
-        for place in data.get("results", [])[:6]:
-            geo = place.get("geometry", {}).get("location", {})
-            cuisines = _parse_cuisines(place.get("types", []))
-
-            raw_price = place.get("price_level")
-            price_level = int(raw_price) if raw_price is not None else None
-
-            candidates.append(
-                RestaurantCandidate(
-                    id=place.get("place_id", str(uuid.uuid4())),
-                    name=place.get("name", "Unknown"),
-                    location=Location(
-                        latitude=geo.get("lat", 0.0),
-                        longitude=geo.get("lng", 0.0),
-                        address=place.get("vicinity"),
-                    ),
-                    price_level=price_level,
-                    cuisines=cuisines or None,
-                    rating=place.get("rating"),
+            async with httpx.AsyncClient(timeout=10) as client:
+                resp = await client.get(
+                    f"{_PLACES_BASE}/nearbysearch/json",
+                    params=params,
                 )
-            )
+                resp.raise_for_status()
+                data = resp.json()
 
-        return candidates
+            status = data.get("status", "UNKNOWN")
+            results = data.get("results", [])
+            span.set_attribute("places.status", status)
+            span.set_attribute("places.result_count", len(results))
+
+            if status not in _EMPTY_STATUSES:
+                error_message = data.get("error_message", "no details provided")
+                raise PlacesApiError(
+                    f"Google Places API returned status '{status}': {error_message}"
+                )
+
+            candidates: list[RestaurantCandidate] = []
+
+            for place in results[:6]:
+                geo = place.get("geometry", {}).get("location", {})
+                cuisines = _parse_cuisines(place.get("types", []))
+
+                raw_price = place.get("price_level")
+                price_level = int(raw_price) if raw_price is not None else None
+
+                candidates.append(
+                    RestaurantCandidate(
+                        id=place.get("place_id", str(uuid.uuid4())),
+                        name=place.get("name", "Unknown"),
+                        location=Location(
+                            latitude=geo.get("lat", 0.0),
+                            longitude=geo.get("lng", 0.0),
+                            address=place.get("vicinity"),
+                        ),
+                        price_level=price_level,
+                        cuisines=cuisines or None,
+                        rating=place.get("rating"),
+                        photo_url=_photo_url(place),
+                    )
+                )
+
+            span.set_attribute("places.candidates_returned", len(candidates))
+            return candidates

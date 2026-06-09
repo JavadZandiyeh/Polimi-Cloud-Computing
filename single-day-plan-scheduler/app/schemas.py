@@ -86,6 +86,10 @@ class RestaurantSummary(BaseModel):
     cuisines: list[str] = Field(default_factory=list)
     rating: Optional[float] = Field(default=None, ge=0, le=5)
     summary: Optional[str] = None
+    photo_url: Optional[str] = Field(
+        default=None,
+        description="URL of a representative photo of the restaurant, for embedding as an image.",
+    )
 
 
 class ScheduleEvent(BaseModel):

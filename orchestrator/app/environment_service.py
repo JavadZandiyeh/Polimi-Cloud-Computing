@@ -78,6 +78,7 @@ class ProviderEnum(str, Enum):
 
 class ModelEnum(str, Enum):
     GPT_5_4_MINI = "gpt-5.4-mini"
+    GPT_5_4 = "gpt-5.4"
     ANTHROPIC_CLAUDE_SONNET_BEDROCK = "anthropic.claude-3-5-sonnet-20240620-v1:0"
 
 
@@ -132,6 +133,9 @@ class ObservabilitySettings(BaseSettings):
     model_config = _settings_config()
 
     logfire_token: str = ""
+    # Deployment label shown in the Logfire UI to separate runs (e.g. local, staging,
+    # production). Set LOGFIRE_ENVIRONMENT per deployment; defaults to local-dev.
+    logfire_environment: str = "local"
 
 
 class EnvironmentVariables(BaseModel):
@@ -174,13 +178,25 @@ class EnvironmentService(metaclass=SingletonMeta):
         self._setup_logfire()
 
     def _setup_logfire(self) -> None:
-        """Configure Logfire when a token is present."""
-        if not self.logfire_token:
-            return
+        """Configure Logfire and instrument this agent's frameworks when a token is present.
 
+        Names this service in the Logfire UI and captures the orchestrator's LLM calls
+        (OpenAI) and its outbound A2A requests to the downstream agents (httpx), so each
+        chat turn shows up as one labelled, drill-down-able trace.
+        """
         import logfire
 
-        logfire.configure(token=self.logfire_token)
+        # Always configure so manual spans are valid; only export when a token is set.
+        logfire.configure(
+            token=self.logfire_token or None,
+            send_to_logfire="if-token-present",
+            service_name="orchestrator",
+            service_version="1.0.0",
+            environment=self.logfire_environment,
+            console=False,
+        )
+        logfire.instrument_openai()
+        logfire.instrument_httpx()
 
     # --- Application ---
 
@@ -254,6 +270,11 @@ class EnvironmentService(metaclass=SingletonMeta):
     def logfire_token(self) -> str:
         """Return the Logfire token, if configured."""
         return self._env.observability.logfire_token
+
+    @property
+    def logfire_environment(self) -> str:
+        """Return the deployment label used to group traces in the Logfire UI."""
+        return self._env.observability.logfire_environment
 
 
 env = EnvironmentService()
