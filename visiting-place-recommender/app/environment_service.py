@@ -61,6 +61,7 @@ class ProviderEnum(str, Enum):
 
 
 class ModelEnum(str, Enum):
+    GPT_5_4 = "gpt-5.4"
     GPT_5_4_MINI = "gpt-5.4-mini"
     OPENAI_GPT_OSS_120B_FREE = "openai/gpt-oss-120b:free"
     QWEN_3_235B_A22B_INSTRUCT_2507 = "qwen-3-235b-a22b-instruct-2507"
