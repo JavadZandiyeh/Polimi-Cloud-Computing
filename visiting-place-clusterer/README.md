@@ -1,73 +1,114 @@
-# Deploying the Visiting Place Clusterer to Azure
+# Visiting Place Clusterer (VPC)
 
-The clusterer is a containerized **A2A agent** (pydantic-ai → FastA2A). Azure AI
-Foundry hosts the **LLM model**; the **container** runs on **Azure Container Apps
-(ACA)** — the equivalent of where the recommender ran on Railway.
+A2A agent that groups recommended places into **balanced, geographically coherent day clusters**. Built with **pydantic-ai** + **FastA2A**. Clustering itself is a deterministic **balanced K-means** tool (`cluster_places`); the LLM only validates inputs and formats the tool result.
+
+Parent overview: [../README.md](../README.md)
+
+---
+
+## Role
+
+**Gates before clustering:**
+
+1. Non-empty place list where every place has usable latitude/longitude  
+2. Clear number of trip days (explicit count or derived from dates)
+
+When inputs are ready, the agent calls `cluster_places` and formats the tool result.
+
+**Output:** `PlaceClustererOutput` with one entry per day (`day` 1-based, `places` as title strings). The orchestrator re-joins titles with full VPR place objects before scheduling.
+
+Algorithm ([app/clustering_service.py](app/clustering_service.py)): size-constrained K-means (k-means++ init); cluster sizes differ by at most one; `k = min(num_days, len(places))`.
+
+---
+
+## Project layout
 
 ```text
-Dockerfile / image  ──►  Azure Container Apps   (the agent, public HTTPS URL)
-                                  │  calls
-                                  ▼
-        gpt-4o-mini deployment ◄──  Azure AI Foundry project (Azure OpenAI)
+app/
+  main.py
+  environment_service.py
+  llm_model_service.py      # openai | openrouter | cerebras | azure
+  agent_service.py
+  clustering_service.py     # balanced K-means
+  schemas.py
+  utils.py
+  files/
+    system_prompts.yml
+    agent_cards.yml
+Dockerfile
+pyproject.toml
 ```
 
-## Live resources (subscription: *Azure for Students*)
+---
+
+## Configuration
+
+`PUBLIC_URL` is **required**.
+
+| Variable | Default | Purpose |
+| --- | --- | --- |
+| `PUBLIC_URL` | _(required)_ | A2A card URL (e.g. `http://localhost:8002`) |
+| `APP_MODE` | `a2a` | `a2a` or `web` |
+| `PROVIDER` | `openai` | `openai` \| `openrouter` \| `cerebras` \| `azure` |
+| `MODEL_NAME` | `gpt-5.4-mini` | Ignored as model id when `PROVIDER=azure` (deployment name is used) |
+| `OPENAI_API_KEY` / `OPENROUTER_API_KEY` / `CEREBRAS_API_KEY` | | Non-Azure providers |
+| `AZURE_OPENAI_ENDPOINT` | | e.g. `https://<resource>.openai.azure.com` |
+| `AZURE_OPENAI_DEPLOYMENT` | | Deployment name (model id for Azure path) |
+| `AZURE_OPENAI_API_VERSION` | `2024-12-01-preview` | Azure API version |
+| `AZURE_OPENAI_API_KEY` | | Azure key |
+| `LOGFIRE_TOKEN` / `LOGFIRE_ENVIRONMENT` | | Optional |
+
+---
+
+## Run locally
+
+```bash
+cd visiting-place-clusterer
+uv sync
+uv run uvicorn main:app --app-dir app --port 8002
+```
+
+- Health: `GET /health` → `ok`
+- Agent card: `GET /.well-known/agent-card.json`
+- Compose: host port `8002`
+
+---
+
+## Dependencies
+
+`fastapi`, `uvicorn`, `pydantic-ai`, `pydantic-settings`, `fasta2a[pydantic-ai]`, `logfire[httpx]`, `pyyaml`. Python ≥ 3.12. Clustering runs locally (no maps API).
+
+---
+
+## Azure deployment (Container Apps + Azure OpenAI)
+
+Deploy the **container** on **Azure Container Apps (ACA)** and the **LLM** on **Azure AI Foundry / Azure OpenAI** (`PROVIDER=azure`).
+
+```text
+Dockerfile / image  ──►  Azure Container Apps   (agent, public HTTPS)
+                                  │  calls
+                                  ▼
+                    Azure OpenAI deployment (e.g. gpt-4o-mini)
+```
+
+### Resources
 
 | Thing | Value |
 | --- | --- |
 | Resource group / region | `polimi-cloud` / `uksouth` |
-| Foundry (AIServices) account | `visiting-place-clusterer` |
-| Azure OpenAI endpoint | `https://visiting-place-clusterer.openai.azure.com` |
+| Foundry / Azure OpenAI account | `visiting-place-clusterer` |
+| Endpoint | `https://visiting-place-clusterer.openai.azure.com` |
 | Model deployment | `gpt-4o-mini` (gpt-4o-mini · 2024-07-18 · GlobalStandard) |
 | Container registry | `ca72f0c87afdacr.azurecr.io` |
 | Container Apps environment | `polimi-cloud-env` |
 | Container App | `visiting-place-clusterer` |
-| **Public URL** | `https://visiting-place-clusterer.icypond-686fddf2.uksouth.azurecontainerapps.io` |
-| Health | `GET /health` → `200 ok` |
-| A2A agent card | `GET /.well-known/agent-card.json` |
-| A2A JSON-RPC | `POST /` (`message/send`, `tasks/get`) |
+| Public URL | `https://visiting-place-clusterer.icypond-686fddf2.uksouth.azurecontainerapps.io` |
 
-The agent runs with `APP_MODE=a2a` and `PROVIDER=azure`. The API key is stored as
-an ACA **secret** (`azure-openai-key`) and referenced via
-`AZURE_OPENAI_API_KEY=secretref:azure-openai-key`.
+Runtime: `APP_MODE=a2a`, `PROVIDER=azure`. Store the API key as an ACA secret (e.g. `azure-openai-key`) and reference it with `AZURE_OPENAI_API_KEY=secretref:azure-openai-key`.
 
-> **Single replica (required):** FastA2A keeps task state in memory, so the app is
-> pinned to `--min-replicas 1 --max-replicas 1`. Do not scale out.
+Recommended replica settings for this service: `--min-replicas 1 --max-replicas 1`.
 
-## What got created (and why)
-
-The deployment produced these resources, all in resource group `polimi-cloud`
-(UK South) under the *Azure for Students* subscription:
-
-![Azure resources for the clusterer](images/azure-resources.png)
-
-> Save the portal screenshot to `visiting-place-clusterer/images/azure-resources.png`
-> for the image above to render.
-
-| Name | Type | Role |
-| --- | --- | --- |
-| `visiting-place-clusterer` | **Container App** | The running agent itself — pulls the image, runs `uvicorn`, and serves the public HTTPS URL (`/health`, the A2A card, the JSON-RPC endpoint). This is what the orchestrator calls. Always-on at 1 replica. |
-| `polimi-cloud-env` | **Container Apps Environment** | The hosting boundary (shared network + logging + domain) that Container Apps live inside. Defines the `…icypond-686fddf2.uksouth.azurecontainerapps.io` domain. Your other agents could share this same environment. |
-| `visiting-place-clusterer` | **Foundry** (AIServices account) | The Azure AI Foundry / Azure OpenAI **account**. Hosts the `gpt-4o-mini` model deployment and exposes the inference endpoint (`…openai.azure.com`) that the container calls on every request. |
-| `visiting-place-clusterer (…/…)` | **Foundry project** | A workspace *inside* the Foundry account that organizes models, agents, and connections. It exposes the project endpoint (`…services.ai.azure.com/api/projects/…`) used by the Foundry Agent SDK. Our container hits the account's Azure OpenAI endpoint directly, so the project isn't on the request path — it's where the model was deployed from. |
-| `ca72f0c87afdacr` | **Container registry (ACR)** | Private Docker registry holding the `visiting-place-clusterer:v1` image; the Container App pulls from here. Auto-named by the first `containerapp up` attempt. |
-| `workspace-polimicloud9wDu` | **Log Analytics workspace** | Log/metrics store auto-created with the environment. Backs `az containerapp logs show` and KQL queries. |
-| `Azure for Students` | **Subscription** | Billing + access boundary that owns everything above; your student credit is drawn from here. |
-
-### What costs credit
-
-| Resource | Cost model |
-| --- | --- |
-| Container App | per vCPU-second + memory while running — always-on at 1 replica is a small continuous drain |
-| Log Analytics | per GB of logs ingested/retained |
-| Container Registry | ~Basic SKU, a few cents/day standing charge |
-| Foundry model | per token on `gpt-4o-mini` (very cheap); nothing when idle |
-| Environment / Foundry project / Subscription | no direct charge themselves |
-
-To minimize burn while idle, set `--min-replicas 0` (scale to zero, ~seconds cold
-start). To tear the whole thing down: `az group delete -n polimi-cloud`.
-
-## One-time setup
+### One-time setup
 
 ```bash
 az login
@@ -76,7 +117,6 @@ az provider register -n Microsoft.App
 az provider register -n Microsoft.OperationalInsights
 az provider register -n Microsoft.ContainerRegistry
 
-# Model deployment in the Foundry project
 az cognitiveservices account deployment create \
   -n visiting-place-clusterer -g polimi-cloud \
   --deployment-name gpt-4o-mini \
@@ -84,18 +124,12 @@ az cognitiveservices account deployment create \
   --sku-name GlobalStandard --sku-capacity 10
 ```
 
-## Build & push the image
+### Build and push (linux/amd64)
 
-> ⚠️ **ACR Tasks (`az acr build`) is blocked on Azure for Students**
-> (`TasksOperationsNotAllowed`). Build **locally** and push instead. ACA only runs
-> **linux/amd64**, so cross-build from Apple Silicon.
-
-The build context must contain `Dockerfile`, `pyproject.toml`, `uv.lock`,
-`README.md`, and `app/` — and **not** `.env`/`.venv`. The repo path contains
-spaces, which trips some tooling, so stage a clean context:
+Build locally and push to ACR (useful on Azure for Students where ACR cloud builds may be unavailable). Stage a clean context (`Dockerfile`, `pyproject.toml`, `uv.lock`, `README.md`, `.dockerignore`, `app/`) without `.env` / `.venv`:
 
 ```bash
-SRC="$(pwd)"   # the visiting-place-clusterer directory
+SRC="$(pwd)"   # visiting-place-clusterer directory
 rm -rf /tmp/vpc-build && mkdir -p /tmp/vpc-build
 cp "$SRC/Dockerfile" "$SRC/pyproject.toml" "$SRC/uv.lock" "$SRC/README.md" "$SRC/.dockerignore" /tmp/vpc-build/
 cp -R "$SRC/app" /tmp/vpc-build/app
@@ -108,7 +142,7 @@ docker buildx build --platform linux/amd64 \
   --push /tmp/vpc-build
 ```
 
-## Create the Container App (first time)
+### Create the Container App
 
 ```bash
 ACR_PWD=$(az acr credential show -n ca72f0c87afdacr --query "passwords[0].value" -o tsv)
@@ -131,42 +165,21 @@ az containerapp create \
     "PUBLIC_URL=https://visiting-place-clusterer.$DOMAIN"
 ```
 
-## Redeploy after code changes
+### Redeploy / verify
 
 ```bash
-# 1. rebuild + push a new tag (repeat the staging + buildx step with :v2)
 docker buildx build --platform linux/amd64 \
   -t ca72f0c87afdacr.azurecr.io/visiting-place-clusterer:v2 --push /tmp/vpc-build
-
-# 2. roll the app to the new image
 az containerapp update -n visiting-place-clusterer -g polimi-cloud \
   --image ca72f0c87afdacr.azurecr.io/visiting-place-clusterer:v2
-```
 
-To change an env var or rotate the key:
-
-```bash
-az containerapp secret set -n visiting-place-clusterer -g polimi-cloud \
-  --secrets azure-openai-key="<NEW_KEY>"
-az containerapp update -n visiting-place-clusterer -g polimi-cloud \
-  --set-env-vars AZURE_OPENAI_DEPLOYMENT=<deployment>
-```
-
-## Verify
-
-```bash
 BASE=https://visiting-place-clusterer.icypond-686fddf2.uksouth.azurecontainerapps.io
-curl "$BASE/health"                          # -> ok
-curl "$BASE/.well-known/agent-card.json"     # -> agent card JSON
-# Logs:
+curl "$BASE/health"
+curl "$BASE/.well-known/agent-card.json"
 az containerapp logs show -n visiting-place-clusterer -g polimi-cloud --tail 50
 ```
 
-## Hardening (optional, not yet applied)
+### Optional follow-ups
 
-- **Keyless model auth:** give the Container App a managed identity, grant it the
-  `Cognitive Services OpenAI User` role on the Foundry account, and switch
-  `llm_model_service.py` to build the `AzureProvider` from an
-  `AsyncAzureOpenAI(azure_ad_token_provider=...)` client (drop `AZURE_OPENAI_API_KEY`).
-- **Keyless ACR pull:** use `--registry-identity system` instead of admin creds.
-- **Rotate** the Foundry API key — it was shared in plaintext during setup.
+- Managed identity for Azure OpenAI and ACR pull (`--registry-identity system`).
+- Scale to zero when idle with `--min-replicas 0`, or tear down with `az group delete -n polimi-cloud`.
